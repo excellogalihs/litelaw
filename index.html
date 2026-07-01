@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>litelaw — Local AI Workspace & Productivity Hub</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <style>
+    @font-face {
+      font-family: 'JetBrainsMono Nerd Font';
+      src: url('https://cdn.jsdelivr.net/gh/ryanoasis/nerd-fonts@v3.2.1/patched-fonts/JetBrainsMono/Ligatures/Regular/JetBrainsMonoNerdFontMono-Regular.ttf') format('truetype');
+      font-weight: 400; font-style: normal; font-display: swap;
+    }
+
+    :root {
+      --bg-space: #040209;
+      --bg-nebula: #0b051b;
+      --bg-card: #110722cc;
+      --border-glow: #4a2993;
+      --border-soft: #211142;
+      --neon-purple: #b693f3;
+      --neon-magenta: #f471b5;
+      --neon-cyan: #22d2ed;
+      --text-main: #f2f0fe;
+      --text-muted: #9283b6;
+      --terminal-black: #030107;
+      --mono: 'JetBrainsMono Nerd Font', 'JetBrains Mono', monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-space);
+      color: var(--text-main);
+      font-family: var(--mono);
+      line-height: 1.6;
+      overflow-x: hidden;
+      position: relative;
+    }
+
+    /* Cosmic Outer Space Purple Background Layers */
+    .space-bg {
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      background: 
+        radial-gradient(ellipse 1000px 700px at 15% 15%, rgba(146, 50, 233, 0.16), transparent 70%),
+        radial-gradient(ellipse 800px 800px at 85% 75%, rgba(244, 113, 181, 0.1), transparent 60%),
+        linear-gradient(180deg, var(--bg-nebula) 0%, var(--bg-space) 100%);
+    }
+
+    .stars {
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      background-image: radial-gradient(white, rgba(255,255,255,.12) 1.5px, transparent 35px);
+      background-size: 220px 220px;
+      opacity: 0.25;
+    }
+
+    /* Container */
+    .container {
+      max-width: 1140px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* Navigation */
+    header {
+      background: rgba(11, 5, 27, 0.8);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border-soft);
+      position: fixed;
+      width: 100%;
+      top: 0;
+      z-index: 100;
+    }
+
+    .nav-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      height: 76px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 800;
+      font-size: 1.3rem;
+      text-decoration: none;
+      color: var(--text-main);
+      letter-spacing: -0.5px;
+    }
+
+    .brand span {
+      background: linear-gradient(90deg, var(--neon-purple), var(--neon-magenta));
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 28px;
+      align-items: center;
+    }
+
+    .nav-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 13px;
+      transition: color 0.2s ease;
+    }
+
+    .nav-links a:hover {
+      color: var(--neon-purple);
+    }
+
+    /* GitHub Action Button */
+    .btn-github {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: rgba(182, 147, 243, 0.06);
+      border: 1px solid var(--border-glow);
+      color: #fff;
+      padding: 10px 18px;
+      border-radius: 8px;
+      font-family: var(--mono);
+      font-size: 13px;
+      text-decoration: none;
+      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .btn-github:hover {
+      background: rgba(182, 147, 243, 0.15);
+      border-color: var(--neon-cyan);
+      box-shadow: 0 0 20px rgba(34, 210, 237, 0.25);
+      transform: translateY(-1px);
+    }
+
+    /* Hero Section */
+    .hero {
+      padding: 180px 0 90px 0;
+      text-align: center;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 6px 14px;
+      background: rgba(34, 210, 237, 0.05);
+      border: 1px solid rgba(34, 210, 237, 0.25);
+      color: var(--neon-cyan);
+      border-radius: 30px;
+      font-size: 11px;
+      margin-bottom: 24px;
+      letter-spacing: 1px;
+    }
+
+    .hero h2 {
+      font-size: 3.4rem;
+      font-weight: 800;
+      line-height: 1.15;
+      margin-bottom: 24px;
+      letter-spacing: -1.5px;
+    }
+
+    .hero h2 span {
+      background: linear-gradient(135deg, var(--neon-purple) 20%, var(--neon-magenta) 80%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+
+    .hero p {
+      max-width: 760px;
+      margin: 0 auto 40px auto;
+      font-size: 15px;
+      color: var(--text-muted);
+    }
+
+    .hero-ctas {
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+    }
+
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      background: linear-gradient(135deg, #6d28d9, #4c1d95);
+      border: 1px solid rgba(182, 147, 243, 0.4);
+      color: #fff;
+      padding: 14px 28px;
+      border-radius: 8px;
+      font-family: var(--mono);
+      font-size: 14px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 25px rgba(109, 40, 217, 0.35);
+    }
+
+    .btn-primary:hover {
+      box-shadow: 0 4px 30px rgba(109, 40, 217, 0.55);
+      transform: translateY(-1px);
+    }
+
+    /* Modular Interface Layout */
+    .section-box {
+      background: var(--bg-card);
+      border: 1px solid var(--border-soft);
+      border-radius: 16px;
+      padding: 44px;
+      margin-bottom: 48px;
+      backdrop-filter: blur(12px);
+    }
+
+    .section-title {
+      font-size: 1.6rem;
+      font-weight: 700;
+      margin-bottom: 28px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      border-bottom: 1px solid var(--border-soft);
+      padding-bottom: 14px;
+    }
+
+    .section-title span {
+      color: var(--neon-purple);
+    }
+
+    /* Workspace Features Grid */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 24px;
+    }
+
+    .feature-card {
+      background: rgba(3, 1, 7, 0.45);
+      border: 1px solid rgba(74, 41, 147, 0.3);
+      border-radius: 12px;
+      padding: 28px;
+      transition: border-color 0.2s ease;
+    }
+
+    .feature-card:hover {
+      border-color: var(--border-glow);
+    }
+
+    .feature-icon {
+      font-size: 22px;
+      color: var(--neon-cyan);
+      margin-bottom: 16px;
+    }
+
+    .feature-card h4 {
+      font-size: 14.5px;
+      margin-bottom: 10px;
+      font-weight: 600;
+    }
+
+    .feature-card p {
+      font-size: 12.5px;
+      color: var(--text-muted);
+    }
+
+    /* Mock WebUI Panel */
+    .webui-window {
+      background: #090514;
+      border: 1px solid var(--border-glow);
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+    }
+
+    .webui-header {
+      background: rgba(182, 147, 243, 0.05);
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--border-soft);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .webui-dots {
+      display: flex;
+      gap: 8px;
+    }
+
+    .webui-dots span {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+    .webui-dots span:nth-child(1) { background: #ef4444; }
+    .webui-dots span:nth-child(2) { background: #f59e0b; }
+    .webui-dots span:nth-child(3) { background: #10b981; }
+
+    .webui-url {
+      background: rgba(0,0,0,0.4);
+      border: 1px solid var(--border-soft);
+      padding: 4px 30px;
+      border-radius: 6px;
+      font-size: 11px;
+      color: var(--text-muted);
+      width: 40%;
+      text-align: center;
+    }
+
+    .webui-body {
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      min-height: 380px;
+    }
+
+    .webui-sidebar {
+      background: rgba(3, 1, 7, 0.3);
+      border-right: 1px solid var(--border-soft);
+      padding: 20px;
+      font-size: 12px;
+    }
+
+    .sidebar-item {
+      padding: 10px 12px;
+      border-radius: 6px;
+      margin-bottom: 6px;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .sidebar-item.active {
+      background: rgba(182, 147, 243, 0.1);
+      color: var(--neon-purple);
+      border-left: 3px solid var(--neon-purple);
+    }
+
+    .webui-main {
+      padding: 24px;
+      background: #0b0619;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .chat-bubble {
+      background: var(--bg-card);
+      border: 1px solid var(--border-soft);
+      padding: 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      margin-bottom: 16px;
+      max-width: 85%;
+    }
+
+    .chat-bubble.assistant {
+      border-left: 3px solid var(--neon-cyan);
+      align-self: flex-start;
+    }
+
+    .webui-input-container {
+      background: rgba(0,0,0,0.3);
+      border: 1px solid var(--border-glow);
+      padding: 14px;
+      border-radius: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    /* Guides & Formatting */
+    ul {
+      padding-left: 20px;
+    }
+
+    li {
+      margin-bottom: 14px;
+      font-size: 14px;
+    }
+
+    li strong {
+      color: var(--neon-purple);
+    }
+
+    code {
+      font-family: var(--mono);
+      background: rgba(182, 147, 243, 0.12);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 12px;
+      color: var(--neon-purple);
+    }
+
+    /* Installation Terminal Code */
+    .terminal-box {
+      background: var(--terminal-black);
+      border: 1px solid var(--border-glow);
+      border-radius: 8px;
+      padding: 18px;
+      font-size: 13px;
+      overflow-x: auto;
+      margin-top: 12px;
+    }
+
+    .line-comment { color: var(--text-muted); font-style: italic; }
+    .line-cmd { color: var(--neon-cyan); }
+    .line-success { color: #4ade80; }
+
+    .step-block {
+      margin-bottom: 28px;
+    }
+
+    .step-block h4 {
+      font-size: 14px;
+      margin-bottom: 6px;
+      color: var(--text-main);
+    }
+
+    footer {
+      text-align: center;
+      padding: 44px 0;
+      color: var(--text-muted);
+      font-size: 11px;
+      border-top: 1px solid var(--border-soft);
+    }
+
+    @media (max-width: 900px) {
+      .webui-body { grid-template-columns: 1fr; }
+      .webui-sidebar { display: none; }
+    }
+
+    @media (max-width: 768px) {
+      .hero h2 { font-size: 2.4rem; }
+      .section-box { padding: 26px; }
+      .nav-links a:not(.btn-github) { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="space-bg"></div>
+  <div class="stars"></div>
+
+  <header>
+    <div class="container nav-bar">
+      <a href="#" class="brand">
+        <div>⬡</div>
+        <div>lite<span>law</span></div>
+      </a>
+      <nav class="nav-links">
+        <a href="#workspace">Workspace Engine</a>
+        <a href="#interface">WebUI Interface</a>
+        <a href="#prerequisites">Prerequisites</a>
+        <a href="#installation">Setup Guide</a>
+        <a href="https://github.com/excellogalihs/litelaw" class="btn-github" target="_blank">
+          <span>󰊤</span> View on GitHub
+        </a>
+      </nav>
+    </div>
+  </header>
+
+  <section class="container hero">
+    <div class="badge">🛸 UNIFIED WEB INTELLIGENCE OPERATING MATRIX</div>
+    <h2>The Next-Gen Local <span>AI Workspace</span> Platform</h2>
+    <p>
+      An advanced, dark-mode graphical ecosystem tracking multi-session chat states, persistent scratchpad document structures, calendar tasks, and systemic data operations from one intuitive, beautifully designed Web UI.
+    </p>
+    <div class="hero-ctas">
+      <a href="#installation" class="btn-primary">Launch Dashboard</a>
+      <a href="https://github.com/excellogalihs/litelaw" class="btn-github" target="_blank" style="padding: 14px 28px;">
+        <span>󰊤</span> Source Code
+      </a>
+    </div>
+  </section>
+
+  <main class="container">
+
+    <section id="workspace" class="section-box">
+      <div class="section-title"><span>󰨞</span> Integrated Workspace Platform</div>
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="feature-icon">󰗀</div>
+          <h4>Live Document Scratchpads</h4>
+          <p>Built-in collaborative text layers and workspaces hosting temporary data files (e.g., <code>Scratchpad.txt</code>) directly accessible beside the active AI assistant pane.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">󰋚</div>
+          <h4>Persistent Bias & Memories</h4>
+          <p>Maintains background vectors to store specialized operational guidelines, programming structures, and favorite system preferences across browser reloads.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">󰖟</div>
+          <h4>Integrated `ddgs` Live Search</h4>
+          <p>Utilizes ultra-lean synchronous web parsing channels compiled right out of the native <code>ddgs</code> framework to supplement model insight grids in real-time.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">󰉉</div>
+          <h4>Advanced File Converters</h4>
+          <p>Universal media backend pipeline converting local PDFs, transforming standard DOCX parameters, and adjusting canvas attributes of project graphic resources on the fly.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="interface" class="section-box">
+      <div class="section-title"><span>󰖟</span> Modern Web Workspace Interface</div>
+      <p style="font-size: 13.5px; color: var(--text-muted); margin-bottom: 24px;">
+        Escape standard lines of terminal prompts. litelaw renders a fully localized rich environment equipped with system alerts, file management systems, and a dark visual terminal workspace context.
+      </p>
+      
+      <div class="webui-window">
+        <div class="webui-header">
+          <div class="webui-dots"><span></span><span></span><span></span></div>
+          <div class="webui-url">http://localhost:5000</div>
+          <div style="font-size: 11px; color: var(--neon-purple);">litelaw v1.0.0</div>
+        </div>
+        <div class="webui-body">
+          <div class="webui-sidebar">
+            <div class="sidebar-item active"><span>󰭦</span> Chat Conversations</div>
+            <div class="sidebar-item"><span>󰨞</span> Document Workspace (Scratchpad)</div>
+            <div class="sidebar-item"><span>󰃭</span> Calendar & Notification Alarms</div>
+            <div class="sidebar-item"><span>󰋚</span> Persistent Memory Store</div>
+          </div>
+          <div class="webui-main">
+            <div>
+              <div class="chat-bubble assistant">
+                <strong>litelaw Workspace Agent:</strong><br>
+                I've verified the project states, parsed your local structural document elements, and synchronized <code>litelaw_store.json</code> safely. What task shall we resolve next?
+              </div>
+            </div>
+            <div class="webui-input-container">
+              <div>Type a request to write code, fetch live web search data via ddgs, or process files...</div>
+              <div style="color: var(--neon-magenta);">󰞘</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="prerequisites" class="section-box">
+      <div class="section-title"><span>󰜢</span> System Prerequisites</div>
+      <p style="margin-bottom: 20px; font-size: 13.5px; color: var(--text-muted);">
+        Prepare your local physical workstation infrastructure with the core toolsets needed to support the workspace framework:
+      </p>
+      <ul>
+        <li><strong>Python Runtime Environment:</strong> Python <code>3.8+</code> configured with an integrated system <code>pip</code> module config tracker.</li>
+        <li><strong>Local Model Processing Layer:</strong> A standalone <code>Ollama</code> server application running locally and exposed at <code>http://localhost:11434</code>.</li>
+        <li><strong>LLM Weight Map:</strong> Download and host the lightweight, hyper-responsive <code>gemma3:1b</code> footprint signature locally.</li>
+        <li><strong>Universal Browser Compatibility:</strong> Perfectly optimized for Chrome, Firefox, Edge, Safari, and all WebKit/Chromium privacy engines.</li>
+      </ul>
+    </section>
+
+    <section id="installation" class="section-box">
+      <div class="section-title"><span>󰏔</span> Provisioning & Server Deployment</div>
+      
+      <div class="step-block">
+        <h4>1. Clone the Central Repository</h4>
+        <div class="terminal-box">
+          <span class="line-cmd">git clone https://github.com/excellogalihs/litelaw.git</span><br>
+          <span class="line-cmd">cd litelaw</span>
+        </div>
+      </div>
+
+      <div class="step-block">
+        <h4>2. Install Core Packages & Drivers</h4>
+        <div class="terminal-box">
+          <span class="line-comment"># Installs the modern Flask server components, text document converters, and ddgs module tools</span><br>
+          <span class="line-cmd">pip install flask pypdf python-docx pillow ddgs</span>
+        </div>
+      </div>
+
+      <div class="step-block">
+        <h4>3. Stage LLM Models Locally</h4>
+        <div class="terminal-box">
+          <span class="line-comment"># Fetch the target AI language parameters inside your local Ollama daemon</span><br>
+          <span class="line-cmd">ollama pull gemma3:1b</span>
+        </div>
+      </div>
+
+      <div class="step-block">
+        <h4>4. Boot the Modern Workspace Engine</h4>
+        <p style="font-size: 12.5px; color: var(--text-muted); margin: 8px 0;">Execute the central deployment file to kickstart the graphical dashboard environment:</p>
+        <div class="terminal-box">
+          <span class="line-cmd">python3 app.py</span><br>
+          <span class="line-success">====================================================</span><br>
+          <span class="line-success"> ⬡  litelaw agent web environment runtime dashboard</span><br>
+          <span class="line-success"> Local Access Interface address: http://localhost:5000</span><br>
+          <span class="line-success">====================================================</span>
+        </div>
+        <p style="font-size: 12.5px; color: var(--text-muted); margin-top: 12px;">
+          Once active, navigate your browser to <code>http://localhost:5000</code> to view and manage your workspace ecosystem.
+        </p>
+      </div>
+    </section>
+
+  </main>
+
+  <footer>
+    <div class="container">
+      &copy; 2026 litelaw Ecosystem • Developed with Outer Space Purple Syntax Templates & JetBrains Mono Nerd Fonts.
+    </div>
+  </footer>
+
+</body>
+</html>
