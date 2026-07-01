@@ -1,4 +1,4 @@
-
+![litelaw banner](banner.png)
 # ⬡ litelaw
 
 A lightweight, local computer-automation agent powered by [Ollama](https://ollama.com). Give it a plain-language task, and it plans and executes shell commands on your machine in a loop until the job is done — no cloud API, no API key, fully local.
