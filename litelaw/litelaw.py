@@ -13,10 +13,15 @@ OLLAMA_URL = "http://localhost:11434/api/chat"
 AUTO_APPROVE = True  # Set to True to bypass the (y/n) confirmation prompt
 MAX_CONTEXT_MESSAGES = 20  # Safeguard to prevent context window bloat
 
-def get_system_prompt():
+def get_system_prompt(memories=None):
     current_os = platform.system()
+    
+    memory_context = ""
+    if memories:
+        memory_context = "\n\nPERSISTENT CONTEXT & MEMORIES FROM PAST SESSIONS:\n" + "\n".join(f"- {m}" for m in memories)
+
     return f"""You are "litelaw", a lightweight, elite computer automation agent running locally. 
-Your job is to help the user complete daily computer tasks using the terminal.
+Your job is to help the user complete daily computer tasks using the terminal.{memory_context}
 
 The user's current Operating System environment is: {current_os}
 
@@ -87,7 +92,6 @@ def call_ollama(messages):
 def execute_command(command):
     print(f"\n⚙️  [litelaw intends to run]: {command}")
     
-    # Check if auto-approve is active
     if not AUTO_APPROVE:
         confirm = input("👉 Allow execution? (y/n): ").strip().lower()
         if confirm != 'y':
@@ -141,7 +145,6 @@ def parse_response(response_text):
     return action, cmd_str if action == "RUN_COMMAND" else ans_str
 
 def run_agent(user_goal, session_messages):
-    # Append the new user goal to our ongoing session list
     session_messages.append({"role": "user", "content": f"Task: {user_goal}"})
     
     max_steps = 10
@@ -176,11 +179,8 @@ def run_agent(user_goal, session_messages):
     else:
         print("\n🛑 Task stopped: Reached maximum safety limit steps.\n")
         
-    # Maintain a sliding window context size so the session history doesn't become too heavy for the local model
     if len(session_messages) > MAX_CONTEXT_MESSAGES:
-        # Keep the system prompt at index 0, but slice away early historical turns
         system_prompt = session_messages[0]
-        # Keep the last N elements
         session_messages[:] = [system_prompt] + session_messages[-MAX_CONTEXT_MESSAGES:]
 
 if __name__ == "__main__":
@@ -189,7 +189,6 @@ if __name__ == "__main__":
     print(" MODE: Hands-Free Auto-Approve Enabled 🚀 ")
     print("====================================================\n")
     
-    # Initialize the session context state at startup
     session_messages = [{"role": "system", "content": get_system_prompt()}]
     
     while True:
@@ -200,7 +199,6 @@ if __name__ == "__main__":
             if user_input.lower() in ['exit', 'quit']:
                 print("Exiting litelaw session. Goodbye!")
                 break
-            # Provide an option to clear context memory manually
             if user_input.lower() == 'clear':
                 session_messages = [{"role": "system", "content": get_system_prompt()}]
                 print("🧹 Memory cleared! Starting fresh context.")
