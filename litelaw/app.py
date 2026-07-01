@@ -339,26 +339,129 @@ header{
 .sidebar-btn:hover, .sidebar-btn.active{
   background:rgba(139,92,246,0.16); border-color: var(--violet-1); color:#fff;
 }
-.history-list, .doc-list{ display:flex; flex-direction:column; gap:4px; max-height:160px; overflow-y:auto; }
-.list-item-link{
-  padding:6px 10px; font-size:11.5px; border-radius:6px; cursor:pointer;
-  white-space: nowrap; overflow:hidden; text-overflow:ellipsis;
-  color:var(--text-dim); transition:all 0.12s ease;
-}
-.list-item-link:hover, .list-item-link.active{
-  background: rgba(167,139,250,0.08); color: var(--text-0);
+.history-list, .doc-list { 
+  display: flex; 
+  flex-direction: column; 
+  gap: 4px; 
+  max-height: 160px;
+  width: 100%; 
+  overflow-y: auto;
+  overflow-x: hidden; 
+
+  /* Thin, themed scrollbar (matches chat-scroller) */
+  -ms-overflow-style: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(167,139,250,0.35) transparent;
 }
 
+.history-list::-webkit-scrollbar,
+.doc-list::-webkit-scrollbar {
+  width: 6px;
+}
+.history-list::-webkit-scrollbar-track,
+.doc-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+.history-list::-webkit-scrollbar-thumb,
+.doc-list::-webkit-scrollbar-thumb {
+  background: rgba(167,139,250,0.35);
+  border-radius: 8px;
+}
+.history-list::-webkit-scrollbar-thumb:hover,
+.doc-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(167,139,250,0.6);
+}
+.list-item-link {
+  display: block;           /* Necessary to enforce clipping and vertical block flow */
+  width: 100%;              /* Forces text to wrap/clip at exact container boundary */
+  flex-shrink: 0;           /* Prevents flex column from squishing items to fit — lets list overflow & scroll */
+  padding: 6px 10px; 
+  font-size: 11.5px; 
+  border-radius: 6px; 
+  cursor: pointer;
+  white-space: nowrap; 
+  overflow: hidden; 
+  text-overflow: ellipsis;  /* Puts '...' safely at the edge of the sidebar */
+  color: var(--text-dim); 
+  transition: all 0.12s ease;
+}
+
+.list-item-link:hover, .list-item-link.active {
+  background: rgba(167,139,250,0.08); 
+  color: var(--text-0);
+}
 /* --- MAIN INTERACTIVE VIEW AREA --- */
 .main-stage{ flex:1; display:flex; flex-direction:column; background:rgba(7,4,15,0.4); overflow:hidden; }
 .stage-panel{ display:none; flex:1; flex-direction:column; overflow:hidden; }
-.stage-panel.active{ display:flex; }
+.stage-panel.active{ display:flex; min-height:0; }
 
-/* CHAT PANEL */
-.chat-scroller{ flex:1; overflow-y:auto; padding:24px 0; }
-.chat-container{ max-width:800px; margin:0 auto; padding:0 20px; display:flex; flex-direction:column; gap:16px; }
+/* CHAT PANEL SCROLLER */
+.chat-scroller { 
+  flex: 1; 
+  min-height: 0;              /* Prevents flex item from refusing to shrink/scroll */
+  width: 100%;
+  overflow-y: auto;          /* Enables natural scroll actions */
+  overflow-x: hidden;
+  padding: 24px 0; 
+  display: flex;
+  flex-direction: column;
+  position: relative;
 
-/* BUBBLES */
+  /* Thin, themed scrollbar instead of hiding it entirely */
+  -ms-overflow-style: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(167,139,250,0.35) transparent;
+}
+
+.chat-scroller::-webkit-scrollbar {
+  width: 8px;
+}
+.chat-scroller::-webkit-scrollbar-track {
+  background: transparent;
+}
+.chat-scroller::-webkit-scrollbar-thumb {
+  background: rgba(167,139,250,0.35);
+  border-radius: 8px;
+}
+.chat-scroller::-webkit-scrollbar-thumb:hover {
+  background: rgba(167,139,250,0.6);
+}
+
+/* Jump-to-latest button, shown when the user has scrolled away from the bottom */
+.scroll-to-bottom-btn {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: none;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border-soft);
+  background: rgba(20,11,40,0.92);
+  backdrop-filter: blur(8px);
+  color: var(--text-1);
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+  z-index: 5;
+}
+.scroll-to-bottom-btn.visible { display: flex; }
+.scroll-to-bottom-btn:hover { background: rgba(139,92,246,0.18); }
+
+/* BUBBLES CONTAINER */
+.chat-container { 
+  width: 100%;
+  max-width: 800px; 
+  margin: 0 auto; 
+  padding: 0 20px; 
+  display: flex; 
+  flex-direction: column; 
+  gap: 16px;
+  flex-grow: 1;             /* Forces layout alignment engine to expand the inner layer */
+}
 .row{ display:flex; width:100%; }
 .row.user{ justify-content:flex-end; }
 .row.assistant{ justify-content:flex-start; }
@@ -458,6 +561,7 @@ textarea#msg{ flex:1; resize:none; background:transparent; border:none; outline:
               <p style="font-size:12px;">Provide goals in standard plaintext. The engine compiles and acts locally.</p>
             </div>
           </div>
+          <button class="scroll-to-bottom-btn" id="scrollToBottomBtn">↓ Jump to latest</button>
         </div>
         <div class="input-wrap">
           <div class="input-inner">
@@ -520,6 +624,27 @@ const emptyState = document.getElementById('emptyState');
 const msgEl = document.getElementById('msg');
 const sendBtn = document.getElementById('sendBtn');
 const chatScroller = document.getElementById('chatScroller');
+const scrollToBottomBtn = document.getElementById('scrollToBottomBtn');
+
+// --- Smart Auto-Scroll ---
+// Only snap to the bottom automatically if the user is already near it.
+// If they've scrolled up to read earlier messages, new steps won't yank them back.
+const NEAR_BOTTOM_PX = 120;
+function isNearBottom() {
+  return (chatScroller.scrollHeight - chatScroller.scrollTop - chatScroller.clientHeight) < NEAR_BOTTOM_PX;
+}
+function scrollToBottom(force = false) {
+  if (force || isNearBottom()) {
+    chatScroller.scrollTop = chatScroller.scrollHeight;
+  }
+  updateScrollButton();
+}
+function updateScrollButton() {
+  scrollToBottomBtn.classList.toggle('visible', !isNearBottom() && chatScroller.scrollHeight > chatScroller.clientHeight + 40);
+}
+chatScroller.addEventListener('scroll', updateScrollButton);
+scrollToBottomBtn.addEventListener('click', () => scrollToBottom(true));
+window.addEventListener('resize', updateScrollButton);
 
 // Workspace View Toggles
 function switchView(targetPanelId, triggerElement=null) {
@@ -583,6 +708,7 @@ async function selectChatThread(chatId) {
   if(res.ok) {
     const data = await res.json();
     data.steps.forEach(step => addStepNodeToStage(step));
+    scrollToBottom(true);
   }
   syncWorkspaceManifest();
 }
@@ -629,7 +755,7 @@ function addStepNodeToStage(step) {
     row.innerHTML = `<div style="color:var(--red); font-size:11px; padding:4px;">✕ ${step.text}</div>`;
   }
   chatContainer.appendChild(row);
-  chatScroller.scrollTop = chatScroller.scrollHeight;
+  scrollToBottom();
 }
 
 // Action Trigger Agent Transaction pipeline
@@ -640,13 +766,14 @@ async function dispatchMessage(){
 
   if (emptyState) emptyState.style.display = 'none';
   addStepNodeToStage({type: 'user_msg', text: text});
+  scrollToBottom(true);
 
   // Structural Thinking Indicator Component Inject
   const thinkRow = document.createElement('div');
   thinkRow.className = 'row assistant'; thinkRow.id = 'agentPulseIndicator';
   thinkRow.innerHTML = `<div style="font-size:12px; color:var(--text-dim); padding:4px;">🤖 thinking...</div>`;
   chatContainer.appendChild(thinkRow);
-  chatScroller.scrollTop = chatScroller.scrollHeight;
+  scrollToBottom(true);
 
   try {
     const res = await fetch('/api/chat', {
