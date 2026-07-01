@@ -1,110 +1,447 @@
-![litelaw banner](banner.jpeg)
 # ⬡ litelaw
 
-A lightweight, local computer-automation agent powered by [Ollama](https://ollama.com). Give it a plain-language task, and it plans and executes shell commands on your machine in a loop until the job is done — no cloud API, no API key, fully local.
+> A lightweight autonomous AI workspace for local computer automation powered by Ollama.
 
-Available as a **CLI** (`litelaw.py`) or a **web chat UI** (`app.py`) built on top of the same core logic.
+litelaw is a local-first AI automation environment that combines an autonomous terminal agent with a modern web interface. It can reason through tasks, execute terminal commands, maintain persistent memory across sessions, manage multiple chat threads, and provide a built-in document editor.
 
-## ⚠️ Safety warning
+Everything runs locally.
 
-litelaw runs **real shell commands on your machine**, and ships with `AUTO_APPROVE = True` by default — meaning it executes whatever the model decides to run **without asking for confirmation**.
+---
 
-- Only use it in a sandbox, VM, or container, or with a model/task you trust.
-- Set `AUTO_APPROVE = False` in `litelaw.py` to require a `(y/n)` prompt before every command.
-- Never point it at a task involving sensitive data or production systems.
-- The system prompt asks the model to avoid destructive/infinite actions, but this is a *suggestion to the LLM*, not a hard guarantee.
+# Features
 
-## Features
+## 🤖 Autonomous Terminal Agent
 
-- 🧠 **Local LLM agent loop** — THOUGHT → ACTION → COMMAND, up to 10 steps per task, using a small local model (default: `gemma3:1b` via Ollama)
-- 💻 **Cross-platform command generation** — tailors syntax for Linux, macOS, and Windows (file management, git, process control, diagnostics, networking, etc.)
-- 🔁 **Sliding context window** — automatically trims chat history so long sessions don't overload a small local model
-- 🖥️ **Two front ends**:
-  - `litelaw.py` — interactive terminal REPL
-  - `app.py` — Flask-based web chat UI (no changes to `litelaw.py`, just imports it)
+- Multi-step reasoning loop
+- Executes terminal commands automatically
+- Reads command output and continues reasoning
+- Stops once the task is complete
+- Configurable execution safety
 
-## Requirements
+---
 
-- Python 3.9+
-- [Ollama](https://ollama.com) installed and running locally
-- The configured model pulled, e.g.:
-  ```bash
-  ollama pull gemma3:1b
-  ```
-- For the web UI only: `Flask`
-  ```bash
-  pip install flask
-  ```
+## 💬 Chat History
 
-## Usage
+- Multiple conversation threads
+- Persistent conversations
+- Automatic context management
+- Reload previous sessions
 
-### CLI
+---
 
-```bash
-python3 litelaw.py
+## 🧠 Persistent Memory
+
+Long-term memory survives restarts.
+
+Perfect for storing things like:
+
+- preferred coding style
+- favorite commands
+- project rules
+- personal preferences
+- workflow instructions
+
+Every new chat automatically receives your saved memories.
+
+---
+
+## 📝 Built-in Document Editor
+
+Includes a lightweight document workspace.
+
+Features:
+
+- Create documents
+- Edit documents
+- Save documents
+- Persistent storage
+- Scratchpad for notes, prompts, templates, etc.
+
+---
+
+## 🎨 Modern UI
+
+- Dark futuristic theme
+- Animated starfield background
+- Responsive interface
+- Sidebar workspace
+- Chat bubbles
+- Terminal-style command output
+- Separate workspaces for:
+
+  - Chat
+  - Memory
+  - Documents
+
+---
+
+## ⚡ Local Execution
+
+Runs commands directly on your machine.
+
+Supports operating-system-aware command generation for:
+
+- Linux
+- Windows
+- macOS
+
+The AI automatically adapts command syntax depending on the OS.
+
+---
+
+## 🔄 Autonomous Execution Loop
+
+The agent repeatedly performs:
+
+1. Think
+2. Generate command
+3. Execute command
+4. Read output
+5. Decide next action
+6. Repeat until finished
+
+---
+
+## 📦 Persistent Workspace
+
+Workspace state is stored inside
+
+```
+litelaw_store.json
 ```
 
-Then type tasks in plain language at the `litelaw ➔` prompt:
+This includes:
 
-```
-litelaw ➔ list all .pdf files in my Downloads folder
-litelaw ➔ show me git status for the current directory
-litelaw ➔ check disk usage and free memory
-```
+- chat history
+- memories
+- saved documents
 
-Special commands:
-| Command | Effect |
-|---|---|
-| `clear` | Wipes the current session's chat memory |
-| `exit` / `quit` | Ends the session |
+---
 
-### Web UI
-
-```bash
-python3 app.py
-```
-
-Open **http://localhost:5000** and chat with litelaw in the browser. Each browser session gets its own in-memory conversation history (cookie-based), and the "clear session" button resets it.
-
-## Configuration
-
-Edit the constants at the top of `litelaw.py`:
-
-```python
-MODEL = "gemma3:1b"                      # any Ollama-compatible model
-OLLAMA_URL = "http://localhost:11434/api/chat"
-AUTO_APPROVE = True                      # False = require (y/n) confirmation per command
-MAX_CONTEXT_MESSAGES = 20                # sliding window size for chat history
-```
-
-## How it works
-
-1. Your task is appended to the conversation and sent to Ollama's `/api/chat` endpoint.
-2. The model replies in a strict format:
-   ```
-   THOUGHT: <reasoning>
-   ACTION: RUN_COMMAND
-   COMMAND: <shell command>
-   ```
-   or, when done:
-   ```
-   THOUGHT: <final reasoning>
-   ACTION: FINISHED
-   ANSWER: <summary for the user>
-   ```
-3. `RUN_COMMAND` responses are executed via `subprocess`, and the captured stdout/stderr is fed back to the model as the next turn.
-4. This repeats (up to `MAX_STEPS = 10`) until the model returns `FINISHED`, or the step/context limits are hit.
-
-The web UI (`app.py`) reuses `get_system_prompt`, `call_ollama`, `execute_command`, and `parse_response` from `litelaw.py` unmodified, and just renders the same step types (thought / command / output / final / warning / error) as chat bubbles instead of terminal output.
-
-## Project structure
+# Project Structure
 
 ```
 litelaw/
-├── litelaw.py   # Core agent: system prompt, Ollama client, command execution, CLI REPL
-└── app.py       # Flask web UI wrapping the same agent loop
+│
+├── app.py                 # Flask web application
+├── litelaw.py             # AI agent engine
+├── litelaw_store.json     # Persistent workspace storage
+├── README.md
 ```
 
-## License
+---
 
-No license specified yet — add one (e.g. MIT) if you plan to share or accept contributions.
+# Requirements
+
+## Python
+
+Python 3.10+
+
+---
+
+## Ollama
+
+Install Ollama:
+
+https://ollama.com
+
+Start the server:
+
+```bash
+ollama serve
+```
+
+---
+
+## AI Model
+
+Current default:
+
+```
+gemma3:1b
+```
+
+Pull it using:
+
+```bash
+ollama pull gemma3:1b
+```
+
+You can change the model inside:
+
+```python
+MODEL = "gemma3:1b"
+```
+
+---
+
+## Python Packages
+
+Install Flask:
+
+```bash
+pip install flask
+```
+
+The remaining modules are part of Python's standard library.
+
+---
+
+# Installation
+
+Clone the repository:
+
+```bash
+git clone https://github.com/excellogalihs/litelaw.git
+```
+
+Enter the directory:
+
+```bash
+cd litelaw
+```
+
+Install dependencies:
+
+```bash
+pip install flask
+```
+
+Start Ollama:
+
+```bash
+ollama serve
+```
+
+Run the web interface:
+
+```bash
+python app.py
+```
+
+Open your browser:
+
+```
+http://localhost:5000
+```
+
+---
+
+# Usage
+
+Type natural language requests such as:
+
+```
+Create a folder called Projects
+```
+
+```
+Find all ISO files in Downloads
+```
+
+```
+Show Python version
+```
+
+```
+List running Docker containers
+```
+
+```
+Create a README file
+```
+
+The agent will:
+
+- think
+- execute commands
+- inspect results
+- continue automatically
+- return a final response
+
+---
+
+# Supported Tasks
+
+## File Management
+
+- create files
+- delete files
+- move files
+- rename files
+- search directories
+- archives
+- copy files
+
+---
+
+## Development
+
+- Git
+- Python
+- Node.js
+- Docker
+- Pip
+- NPM
+
+---
+
+## System Diagnostics
+
+- processes
+- memory
+- disk usage
+- environment variables
+- uptime
+- networking
+
+---
+
+## Terminal Automation
+
+- shell commands
+- automation workflows
+- command execution
+- multi-step tasks
+
+---
+
+# Persistent Memory
+
+Memories can be added through the web interface.
+
+Example memories:
+
+```
+Always use printf instead of echo.
+```
+
+```
+Prefer Python over Bash when possible.
+```
+
+```
+Use Arch Linux package manager.
+```
+
+Every future conversation automatically includes these memories.
+
+---
+
+# Document Workspace
+
+Built-in editor supports:
+
+- notes
+- prompt libraries
+- command templates
+- scratchpads
+- temporary files
+
+Documents remain available after restarting the application.
+
+---
+
+# Safety
+
+The agent currently supports automatic execution.
+
+Configuration:
+
+```python
+AUTO_APPROVE = True
+```
+
+Set it to:
+
+```python
+AUTO_APPROVE = False
+```
+
+to require confirmation before every command.
+
+---
+
+# Configuration
+
+Inside `litelaw.py`
+
+```python
+MODEL = "gemma3:1b"
+```
+
+Change to any installed Ollama model.
+
+Example:
+
+```
+llama3
+```
+
+```
+qwen3
+```
+
+```
+phi4
+```
+
+```
+deepseek-r1
+```
+
+You can also configure:
+
+- maximum context size
+- Ollama endpoint
+- auto-approval
+- timeout behavior
+
+---
+
+# Future Roadmap
+
+Planned features include:
+
+- Web search
+- Webpage reader
+- YouTube search
+- Local file indexing
+- Semantic document search
+- Vision support
+- Voice support
+- Plugin system
+- Multi-agent workflows
+- Deep research mode
+- Code editor
+- File explorer
+- Model manager
+- Better permission controls
+- Streaming responses
+- Markdown rendering
+- Syntax highlighting
+- Download manager
+- Background task execution
+- Workspace tabs
+- Custom themes
+
+---
+
+# License
+
+This project is provided as-is for educational and personal use.
+
+---
+
+# Acknowledgements
+
+- Ollama
+- Flask
+- JetBrains Mono
+- Python
+
+---
+
+## Built for local AI automation.
+
+**Think. Execute. Learn. Repeat.**
