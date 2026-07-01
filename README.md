@@ -1,3 +1,4 @@
+![litelaw banner](banner1.jpeg)
 # ⬡ litelaw
 
 > A lightweight autonomous AI workspace for local computer automation powered by Ollama.
