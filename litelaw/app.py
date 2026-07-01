@@ -1,17 +1,6 @@
 #!/usr/bin/env python3
-"""
-litelaw web UI — a Flask front-end for the litelaw local automation agent.
-
-This file does NOT modify litelaw.py. It imports the existing, unmodified
-functions (get_system_prompt, call_ollama, execute_command, parse_response,
-MAX_CONTEXT_MESSAGES) and wraps them in a small web server + chat UI.
-
-Run with:
-    python3 app.py
-
-Then open:
-    http://localhost:5000
-"""
+import os
+import json
 import uuid
 from flask import Flask, request, jsonify, render_template_string, session
 
@@ -24,40 +13,55 @@ from litelaw import (
 )
 
 app = Flask(__name__)
-app.secret_key = uuid.uuid4().hex  # local-only tool, random per-run secret is fine
+app.secret_key = uuid.uuid4().hex
 
-MAX_STEPS = 10
+STORE_FILE = "litelaw_store.json"
 
-# In-memory session store: session_id -> list of chat messages (same shape litelaw.py uses)
-SESSIONS = {}
+def load_store():
+    """Load data from JSON file or initialize a fresh state."""
+    if not os.path.exists(STORE_FILE):
+        default_store = {
+            "chats": {},
+            "memories": [
+                "User loves automation and clean terminal configurations.",
+                "Always favor modern commands (e.g. printf over echo where applicable)."
+            ],
+            "documents": {
+                "default-doc": {
+                    "title": "Scratchpad.txt",
+                    "content": "Welcome to your litelaw workspace document editor!\nYou can save temporary data, task definitions, or command templates here."
+                }
+            }
+        }
+        save_store(default_store)
+        return default_store
+    try:
+        with open(STORE_FILE, "r") as f:
+            return json.load(f)
+    except Exception:
+        return {"chats": {}, "memories": [], "documents": {}}
 
-
-def get_session_messages(session_id):
-    if session_id not in SESSIONS:
-        SESSIONS[session_id] = [{"role": "system", "content": get_system_prompt()}]
-    return SESSIONS[session_id]
-
+def save_store(data):
+    """Persist store dictionary cleanly back to disk."""
+    with open(STORE_FILE, "w") as f:
+        json.dump(data, f, indent=2)
 
 def trim_context(session_messages):
     if len(session_messages) > MAX_CONTEXT_MESSAGES:
         system_prompt = session_messages[0]
         session_messages[:] = [system_prompt] + session_messages[-MAX_CONTEXT_MESSAGES:]
 
-
-def web_run_agent(user_goal, session_messages):
-    """
-    Mirrors litelaw.run_agent()'s loop, but instead of printing to a terminal
-    it collects each step as a structured event for the web UI to render.
-    """
+def web_run_agent(user_goal, session_messages, memories):
+    """Executes the autonomous terminal workflow loop."""
     steps = []
     session_messages.append({"role": "user", "content": f"Task: {user_goal}"})
 
-    for step in range(MAX_STEPS):
+    for step in range(10):
         response = call_ollama(session_messages)
         if not response:
             steps.append({
                 "type": "error",
-                "text": "Could not connect to Ollama. Make sure it's running (ollama serve) and the model is pulled."
+                "text": "Could not connect to Ollama. Verify it is running (`ollama serve`)."
             })
             break
 
@@ -80,47 +84,163 @@ def web_run_agent(user_goal, session_messages):
         else:
             steps.append({
                 "type": "warning",
-                "text": "Model returned an invalid step; nudging it back on format."
+                "text": "Formatting misalignment detected; adjusting agent constraints."
             })
             session_messages.append({
                 "role": "user",
                 "content": "Invalid layout. Return your move strictly using ACTION: RUN_COMMAND or ACTION: FINISHED."
             })
     else:
-        steps.append({"type": "error", "text": "Reached maximum step limit for this task."})
+        steps.append({"type": "error", "text": "Reached step threshold limit before closure."})
 
     trim_context(session_messages)
     return steps
-
 
 @app.route("/")
 def index():
     return render_template_string(PAGE_HTML)
 
+@app.route("/api/init", methods=["GET"])
+def initialize_workspace():
+    """Flashes out entire synchronized store data to frontend sidebar."""
+    store = load_store()
+    chat_list = [{"id": cid, "title": c["title"]} for cid, c in store["chats"].items()]
+    doc_list = [{"id": did, "title": d["title"]} for did, d in store["documents"].items()]
+    return jsonify({
+        "chats": chat_list,
+        "memories": store["memories"],
+        "documents": doc_list
+    })
+
+@app.route("/api/chat/new", methods=["POST"])
+def create_new_chat():
+    store = load_store()
+    chat_id = uuid.uuid4().hex
+    
+    # Pre-inject system prompt bundled with current persistent memories
+    store["chats"][chat_id] = {
+        "title": "Untitled Operations Thread",
+        "messages": [{"role": "system", "content": get_system_prompt(store["memories"])}]
+    }
+    save_store(store)
+    return jsonify({"chat_id": chat_id, "title": store["chats"][chat_id]["title"]})
+
+@app.route("/api/chat/get", methods=["GET"])
+def get_chat_history():
+    chat_id = request.args.get("chat_id")
+    store = load_store()
+    if chat_id not in store["chats"]:
+        return jsonify({"error": "Thread expired or absent"}), 404
+    
+    # Filter structural system records away from UI chat view nodes
+    visible_steps = []
+    raw_msgs = store["chats"][chat_id]["messages"]
+    
+    # Parse existing history back into interactive client steps
+    for idx, m in enumerate(raw_msgs):
+        if m["role"] == "user" and m["content"].startswith("Task: "):
+            visible_steps.append({"type": "user_msg", "text": m["content"].replace("Task: ", "")})
+        elif m["role"] == "assistant":
+            resp = m["content"]
+            for line in resp.split('\n'):
+                if line.startswith("THOUGHT:"):
+                    visible_steps.append({"type": "thought", "text": line.replace("THOUGHT:", "").strip()})
+            
+            # Look at subsequent indices for command execution outputs
+            action, target = parse_response(resp)
+            if action == "RUN_COMMAND":
+                visible_steps.append({"type": "command", "text": target})
+                if idx + 1 < len(raw_msgs) and raw_msgs[idx+1]["role"] == "user" and raw_msgs[idx+1]["content"].startswith("Command output:\n"):
+                    out_text = raw_msgs[idx+1]["content"].replace("Command output:\n", "")
+                    visible_steps.append({"type": "output", "text": out_text})
+            elif action == "FINISHED":
+                visible_steps.append({"type": "final", "text": target})
+                
+    return jsonify({"steps": visible_steps})
 
 @app.route("/api/chat", methods=["POST"])
 def chat():
-    if "sid" not in session:
-        session["sid"] = uuid.uuid4().hex
-    session_id = session["sid"]
-
     data = request.get_json(force=True) or {}
+    chat_id = data.get("chat_id")
     message = (data.get("message") or "").strip()
+
     if not message:
-        return jsonify({"steps": [{"type": "error", "text": "Empty message."}]})
+        return jsonify({"steps": [{"type": "error", "text": "Empty command syntax query submission."}]})
 
-    session_messages = get_session_messages(session_id)
-    steps = web_run_agent(message, session_messages)
-    return jsonify({"steps": steps})
+    store = load_store()
+    
+    # If client lacks an active session ID or thread got deleted, spin a new one up
+    if not chat_id or chat_id not in store["chats"]:
+        chat_id = uuid.uuid4().hex
+        store["chats"][chat_id] = {
+            "title": message[:32] + "..." if len(message) > 32 else message,
+            "messages": [{"role": "system", "content": get_system_prompt(store["memories"])}]
+        }
+    elif store["chats"][chat_id]["title"] == "Untitled Operations Thread":
+        store["chats"][chat_id]["title"] = message[:32] + "..." if len(message) > 32 else message
 
+    session_messages = store["chats"][chat_id]["messages"]
+    steps = web_run_agent(message, session_messages, store["memories"])
+    
+    store["chats"][chat_id]["messages"] = session_messages
+    save_store(store)
+    
+    return jsonify({"steps": steps, "chat_id": chat_id, "title": store["chats"][chat_id]["title"]})
 
-@app.route("/api/clear", methods=["POST"])
-def clear():
-    if "sid" not in session:
-        session["sid"] = uuid.uuid4().hex
-    SESSIONS[session["sid"]] = [{"role": "system", "content": get_system_prompt()}]
-    return jsonify({"ok": True})
+# --- Memory Routes ---
+@app.route("/api/memories/add", methods=["POST"])
+def add_memory():
+    data = request.get_json(force=True) or {}
+    text = (data.get("text") or "").strip()
+    if not text:
+        return jsonify({"error": "Empty string context"}), 400
+    store = load_store()
+    if text not in store["memories"]:
+        store["memories"].append(text)
+        save_store(store)
+    return jsonify({"ok": True, "memories": store["memories"]})
 
+@app.route("/api/memories/delete", methods=["POST"])
+def delete_memory():
+    data = request.get_json(force=True) or {}
+    index = data.get("index")
+    store = load_store()
+    if index is not None and 0 <= index < len(store["memories"]):
+        store["memories"].pop(index)
+        save_store(store)
+    return jsonify({"ok": True, "memories": store["memories"]})
+
+# --- Document Workspaces Routes ---
+@app.route("/api/documents/get", methods=["GET"])
+def get_document():
+    doc_id = request.args.get("doc_id")
+    store = load_store()
+    if doc_id not in store["documents"]:
+        return jsonify({"error": "File object not found"}), 404
+    return jsonify(store["documents"][doc_id])
+
+@app.route("/api/documents/save", methods=["POST"])
+def save_document():
+    data = request.get_json(force=True) or {}
+    doc_id = data.get("doc_id")
+    title = data.get("title", "Untitled.txt").strip() or "Untitled.txt"
+    content = data.get("content", "")
+    
+    store = load_store()
+    if not doc_id:
+        doc_id = uuid.uuid4().hex
+        
+    store["documents"][doc_id] = {"title": title, "content": content}
+    save_store(store)
+    return jsonify({"ok": True, "doc_id": doc_id, "title": title})
+
+@app.route("/api/documents/new", methods=["POST"])
+def new_document():
+    store = load_store()
+    doc_id = uuid.uuid4().hex
+    store["documents"][doc_id] = {"title": "New_Buffer.txt", "content": ""}
+    save_store(store)
+    return jsonify({"doc_id": doc_id, "title": "New_Buffer.txt"})
 
 PAGE_HTML = r"""
 <!DOCTYPE html>
@@ -128,31 +248,22 @@ PAGE_HTML = r"""
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>litelaw</title>
+<title>litelaw AI Workspace</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 @font-face {
   font-family: 'JetBrainsMono Nerd Font';
   src: url('https://cdn.jsdelivr.net/gh/ryanoasis/nerd-fonts@v3.2.1/patched-fonts/JetBrainsMono/Ligatures/Regular/JetBrainsMonoNerdFontMono-Regular.ttf') format('truetype');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
+  font-weight: 400; font-style: normal; font-display: swap;
 }
-@font-face {
-  font-family: 'JetBrainsMono Nerd Font';
-  src: url('https://cdn.jsdelivr.net/gh/ryanoasis/nerd-fonts@v3.2.1/patched-fonts/JetBrainsMono/Ligatures/Bold/JetBrainsMonoNerdFontMono-Bold.ttf') format('truetype');
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-}
-
 :root{
   --bg-0:#07040f;
   --bg-1:#0d0620;
   --bg-2:#160a33;
   --panel:#120a26cc;
   --panel-solid:#140b28;
+  --sidebar-bg:#090514;
   --border:#3a2470;
   --border-soft:#2a1a52;
   --violet-1:#a78bfa;
@@ -168,525 +279,467 @@ PAGE_HTML = r"""
   --yellow:#facc15;
   --mono: 'JetBrainsMono Nerd Font', 'JetBrains Mono', ui-monospace, monospace;
 }
-
 *{ box-sizing:border-box; }
-
 html,body{
-  height:100%;
-  margin:0;
-  font-family: var(--mono);
-  background: var(--bg-0);
-  color: var(--text-0);
-  overflow:hidden;
-}
-
-/* ---------- starfield backdrop ---------- */
-#stars, #stars2, #stars3{
-  position:fixed; inset:0; z-index:0; pointer-events:none;
+  height:100%; margin:0; font-family: var(--mono);
+  background: var(--bg-0); color: var(--text-0); overflow:hidden;
 }
 .nebula{
   position:fixed; inset:0; z-index:0; pointer-events:none;
   background:
-    radial-gradient(ellipse 900px 600px at 15% 15%, rgba(139,92,246,0.20), transparent 60%),
-    radial-gradient(ellipse 800px 700px at 85% 25%, rgba(232,121,249,0.14), transparent 60%),
-    radial-gradient(ellipse 900px 800px at 50% 100%, rgba(103,232,249,0.08), transparent 60%),
-    linear-gradient(180deg, var(--bg-1) 0%, var(--bg-0) 55%, #050310 100%);
+    radial-gradient(ellipse 900px 600px at 15% 15%, rgba(139,92,246,0.15), transparent 60%),
+    radial-gradient(ellipse 800px 700px at 85% 25%, rgba(232,121,249,0.12), transparent 60%),
+    linear-gradient(180deg, var(--bg-1) 0%, var(--bg-0) 100%);
 }
+#stars{ position:fixed; inset:0; z-index:0; pointer-events:none; }
 
-/* ---------- layout ---------- */
-.app{
-  position:relative; z-index:1;
-  height:100vh;
-  display:flex;
-  flex-direction:column;
+.app-frame{
+  position:relative; z-index:1; height:100vh;
+  display:flex; flex-direction:column;
 }
-
 header{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  padding:14px 22px;
-  border-bottom:1px solid var(--border-soft);
-  background: linear-gradient(180deg, rgba(20,11,40,0.85), rgba(20,11,40,0.55));
-  backdrop-filter: blur(10px);
+  display:flex; align-items:center; justify-content:space-between;
+  padding:12px 20px; border-bottom:1px solid var(--border-soft);
+  background: rgba(20,11,40,0.85); backdrop-filter: blur(12px);
 }
-
-.brand{
-  display:flex; align-items:center; gap:12px;
-}
+.brand{ display:flex; align-items:center; gap:12px; }
 .brand-mark{
-  width:36px; height:36px;
-  border-radius:10px;
+  width:32px; height:32px; border-radius:8px;
   display:flex; align-items:center; justify-content:center;
   background: radial-gradient(circle at 30% 30%, var(--violet-1), var(--violet-3) 70%);
-  box-shadow: 0 0 18px rgba(139,92,246,0.65), inset 0 0 8px rgba(255,255,255,0.25);
-  font-size:18px;
+  box-shadow: 0 0 14px rgba(139,92,246,0.5); font-size:16px;
 }
 .brand-text h1{
-  margin:0; font-size:17px; font-weight:800; letter-spacing:0.5px;
+  margin:0; font-size:16px; font-weight:800; letter-spacing:0.5px;
   background: linear-gradient(90deg, var(--violet-1), var(--magenta));
   -webkit-background-clip:text; background-clip:text; color:transparent;
 }
-.brand-text span{
-  display:block; margin-top:1px; font-size:11px; color:var(--text-dim); letter-spacing:0.4px;
+.brand-text span{ display:block; font-size:10px; color:var(--text-dim); }
+
+.workspace-layout{ display:flex; flex:1; overflow:hidden; }
+
+/* --- SIDEBAR PANEL --- */
+.sidebar{
+  width:280px; background: var(--sidebar-bg);
+  border-right:1px solid var(--border-soft);
+  display:flex; flex-direction:column; gap:20px; padding:16px; overflow-y:auto;
+}
+.sidebar-section-title{
+  font-size:10.5px; text-transform:uppercase; color:var(--text-dim);
+  letter-spacing:1px; margin-bottom:8px; font-weight:700;
+  display:flex; align-items:center; justify-content:between;
+}
+.sidebar-btn{
+  width:100%; font-family:var(--mono); text-align:left;
+  background:rgba(139,92,246,0.06); border:1px solid var(--border-soft);
+  color:var(--text-1); padding:9px 12px; border-radius:8px;
+  font-size:12px; cursor:pointer; transition: all .15s ease;
+  display:flex; align-items:center; gap:8px; margin-bottom:6px;
+}
+.sidebar-btn:hover, .sidebar-btn.active{
+  background:rgba(139,92,246,0.16); border-color: var(--violet-1); color:#fff;
+}
+.history-list, .doc-list{ display:flex; flex-direction:column; gap:4px; max-height:160px; overflow-y:auto; }
+.list-item-link{
+  padding:6px 10px; font-size:11.5px; border-radius:6px; cursor:pointer;
+  white-space: nowrap; overflow:hidden; text-overflow:ellipsis;
+  color:var(--text-dim); transition:all 0.12s ease;
+}
+.list-item-link:hover, .list-item-link.active{
+  background: rgba(167,139,250,0.08); color: var(--text-0);
 }
 
-.header-actions{ display:flex; align-items:center; gap:10px; }
-.status-dot{
-  width:8px; height:8px; border-radius:50%; background:var(--green);
-  box-shadow:0 0 8px var(--green);
-  display:inline-block;
-}
-.status-pill{
-  display:flex; align-items:center; gap:6px;
-  font-size:11px; color:var(--text-dim);
-  border:1px solid var(--border-soft);
-  padding:5px 10px; border-radius:999px;
-  background:rgba(139,92,246,0.06);
-}
+/* --- MAIN INTERACTIVE VIEW AREA --- */
+.main-stage{ flex:1; display:flex; flex-direction:column; background:rgba(7,4,15,0.4); overflow:hidden; }
+.stage-panel{ display:none; flex:1; flex-direction:column; overflow:hidden; }
+.stage-panel.active{ display:flex; }
 
-button.ghost-btn{
-  font-family:var(--mono);
-  background:rgba(139,92,246,0.08);
-  border:1px solid var(--border);
-  color:var(--text-1);
-  padding:7px 13px;
-  border-radius:8px;
-  font-size:12px;
-  cursor:pointer;
-  transition: all .15s ease;
-}
-button.ghost-btn:hover{
-  background:rgba(139,92,246,0.18);
-  border-color: var(--violet-1);
-  color:#fff;
-}
+/* CHAT PANEL */
+.chat-scroller{ flex:1; overflow-y:auto; padding:24px 0; }
+.chat-container{ max-width:800px; margin:0 auto; padding:0 20px; display:flex; flex-direction:column; gap:16px; }
 
-/* ---------- chat area ---------- */
-main{
-  flex:1;
-  overflow-y:auto;
-  padding: 26px 0 10px;
-}
-.chat-inner{
-  max-width: 880px;
-  margin:0 auto;
-  padding: 0 22px 10px;
-  display:flex;
-  flex-direction:column;
-  gap:16px;
-}
-
-.empty-state{
-  margin-top:14vh;
-  text-align:center;
-  color:var(--text-dim);
-}
-.empty-state .glyph{
-  font-size:40px;
-  margin-bottom:10px;
-  filter: drop-shadow(0 0 14px rgba(167,139,250,0.6));
-}
-.empty-state h2{
-  color:var(--text-0);
-  font-size:18px;
-  margin:6px 0 4px;
-}
-.empty-state p{ font-size:12.5px; margin:0; }
-.suggestions{
-  display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin-top:18px;
-}
-.chip{
-  border:1px solid var(--border-soft);
-  background:rgba(139,92,246,0.06);
-  color:var(--text-1);
-  padding:8px 12px;
-  border-radius:10px;
-  font-size:11.5px;
-  cursor:pointer;
-}
-.chip:hover{ border-color:var(--violet-1); background:rgba(139,92,246,0.14); }
-
+/* BUBBLES */
 .row{ display:flex; width:100%; }
 .row.user{ justify-content:flex-end; }
 .row.assistant{ justify-content:flex-start; }
-
-.bubble{
-  max-width: 78%;
-  padding: 11px 15px;
-  border-radius: 14px;
-  font-size: 13.5px;
-  line-height: 1.55;
-  white-space: pre-wrap;
-  word-wrap: break-word;
-}
+.bubble{ max-width:82%; padding:11px 15px; border-radius:12px; font-size:13px; line-height:1.5; white-space:pre-wrap; }
 .bubble.user{
-  background: linear-gradient(135deg, var(--violet-3), #5b21b6);
-  color:#f5f3ff;
-  border: 1px solid rgba(167,139,250,0.4);
-  border-bottom-right-radius:4px;
-  box-shadow: 0 4px 18px rgba(124,58,237,0.35);
+  background: linear-gradient(135deg, var(--violet-3), #5b21b6); color:#fff;
+  border: 1px solid rgba(167,139,250,0.3); border-bottom-right-radius:2px;
 }
-.bubble.final{
-  background: var(--panel-solid);
-  border:1px solid var(--border-soft);
-  border-bottom-left-radius:4px;
-  color:var(--text-0);
+.bubble.final{ background: var(--panel-solid); border:1px solid var(--border-soft); border-bottom-left-radius:2px; }
+.bubble.final::before{ content:"⬡ litelaw response"; display:block; font-size:10px; color:var(--violet-1); margin-bottom:4px; font-weight:700; }
+.thought{ max-width:82%; font-size:11.5px; color:var(--text-dim); font-style:italic; padding:2px; }
+.thought::before{ content:"✧ "; color:var(--violet-1); }
+
+.term-block{ width:82%; border-radius:8px; overflow:hidden; border:1px solid var(--border-soft); background:#05020a; }
+.term-head{ display:flex; align-items:center; gap:6px; padding:6px 12px; background:rgba(139,92,246,0.06); font-size:10px; color:var(--text-dim); }
+.term-dots span{ width:6px; height:6px; border-radius:50%; display:inline-block; background:#3a2470; }
+.term-body{ padding:10px 12px; font-size:12px; white-space:pre-wrap; }
+.term-body.command{ color:var(--cyan); }
+.term-body.command::before{ content:"$ "; color:var(--violet-1); }
+.term-body.output{ color:var(--text-1); }
+
+/* MEMORY PANEL */
+.memory-workspace, .editor-workspace{ max-width:800px; width:100%; margin:30px auto; padding:0 20px; display:flex; flex-direction:column; gap:20px; }
+.memory-input-group{ display:flex; gap:10px; }
+.input-field{
+  flex:1; background:rgba(139,92,246,0.06); border:1px solid var(--border);
+  border-radius:8px; padding:10px 14px; color:#fff; font-family:var(--mono); font-size:13px;
 }
-.bubble.final::before{
-  content:"⬡ litelaw";
-  display:block;
-  font-size:10.5px;
-  letter-spacing:0.6px;
-  color:var(--violet-1);
-  margin-bottom:6px;
-  font-weight:700;
+.memory-card-list{ display:flex; flex-direction:column; gap:10px; margin-top:10px; }
+.memory-item{
+  background:var(--panel-solid); border:1px solid var(--border-soft);
+  padding:12px 16px; border-radius:8px; display:flex; align-items:center; justify-content:space-between; font-size:12.5px;
+}
+.delete-btn{ background:transparent; border:none; color:var(--red); cursor:pointer; font-family:var(--mono); }
+
+/* EDITOR WORKSPACE */
+.editor-meta{ display:flex; gap:12px; width:100%; }
+.editor-textarea{
+  flex:1; min-height:400px; background: #05020a; border:1px solid var(--border-soft);
+  border-radius:8px; padding:16px; color:var(--text-0); font-family:var(--mono); font-size:13px; line-height:1.6; resize:none;
 }
 
-.thought{
-  max-width:78%;
-  font-size:12px;
-  color:var(--text-dim);
-  font-style:italic;
-  padding:2px 4px 2px 2px;
-}
-.thought::before{ content:"✧ "; color:var(--violet-1); font-style:normal; }
+/* CHAT CONTROLS WRAPPER */
+.input-wrap{ border-top:1px solid var(--border-soft); padding:14px 20px; background:rgba(9,5,20,0.7); }
+.input-inner{ max-width:800px; margin:0 auto; display:flex; align-items:center; gap:10px; background:rgba(139,92,246,0.04); border:1px solid var(--border); border-radius:10px; padding:8px 12px; }
+textarea#msg{ flex:1; resize:none; background:transparent; border:none; outline:none; color:#fff; font-family:var(--mono); font-size:13px; }
+.send-btn{ width:34px; height:34px; border-radius:8px; border:none; cursor:pointer; background:linear-gradient(135deg, var(--violet-1), var(--violet-3)); color:#fff; display:flex; align-items:center; justify-content:center; }
 
-.term-block{
-  max-width:78%;
-  border-radius:10px;
-  overflow:hidden;
-  border:1px solid var(--border-soft);
-  background: #0b0618;
-  box-shadow: inset 0 0 0 1px rgba(139,92,246,0.06);
-}
-.term-head{
-  display:flex; align-items:center; gap:8px;
-  padding:7px 12px;
-  background: rgba(139,92,246,0.08);
-  border-bottom:1px solid var(--border-soft);
-  font-size:10.5px;
-  color: var(--text-dim);
-  letter-spacing:0.4px;
-}
-.term-dots{ display:flex; gap:5px; }
-.term-dots span{ width:8px; height:8px; border-radius:50%; display:inline-block; }
-.term-dots span:nth-child(1){ background:#ff5f56; }
-.term-dots span:nth-child(2){ background:#ffbd2e; }
-.term-dots span:nth-child(3){ background:#27c93f; }
-.term-body{
-  padding:11px 13px;
-  font-size:12.5px;
-  line-height:1.6;
-  white-space:pre-wrap;
-  word-wrap:break-word;
-}
-.term-body.command{ color: var(--cyan); }
-.term-body.command::before{ content:"$ "; color: var(--violet-1); }
-.term-body.output{ color: var(--text-1); }
-
-.warning-line, .error-line{
-  max-width:78%;
-  font-size:11.5px;
-  padding:7px 11px;
-  border-radius:8px;
-  border:1px solid;
-}
-.warning-line{ color:var(--yellow); border-color:rgba(250,204,21,0.35); background:rgba(250,204,21,0.06); }
-.error-line{ color:var(--red); border-color:rgba(248,113,113,0.35); background:rgba(248,113,113,0.07); }
-
-.thinking-row{
-  display:flex; align-items:center; gap:8px;
-  color:var(--text-dim); font-size:12px; padding:2px 4px;
-}
-.thinking-dots span{
-  display:inline-block; width:5px; height:5px; margin-right:3px;
-  border-radius:50%; background:var(--violet-1);
-  animation: blink 1.2s infinite ease-in-out;
-}
-.thinking-dots span:nth-child(2){ animation-delay:.2s; }
-.thinking-dots span:nth-child(3){ animation-delay:.4s; }
-@keyframes blink{ 0%,80%,100%{ opacity:.25; } 40%{ opacity:1; } }
-
-/* ---------- input ---------- */
-.input-wrap{
-  border-top:1px solid var(--border-soft);
-  background: linear-gradient(0deg, rgba(20,11,40,0.9), rgba(20,11,40,0.5));
-  backdrop-filter: blur(10px);
-  padding: 14px 22px 18px;
-}
-.input-inner{
-  max-width:880px; margin:0 auto;
-  display:flex; align-items:flex-end; gap:10px;
-  background: rgba(139,92,246,0.06);
-  border:1px solid var(--border);
-  border-radius:14px;
-  padding:10px 10px 10px 16px;
-  transition: border-color .15s ease, box-shadow .15s ease;
-}
-.input-inner:focus-within{
-  border-color: var(--violet-1);
-  box-shadow: 0 0 0 3px rgba(167,139,250,0.15);
-}
-textarea#msg{
-  flex:1;
-  resize:none;
-  background:transparent;
-  border:none;
-  outline:none;
-  color: var(--text-0);
-  font-family: var(--mono);
-  font-size:13.5px;
-  line-height:1.5;
-  max-height:160px;
-  padding:6px 0;
-}
-textarea#msg::placeholder{ color: var(--text-dim); }
-
-.send-btn{
-  width:38px; height:38px;
-  border-radius:10px;
-  border:none;
-  cursor:pointer;
-  display:flex; align-items:center; justify-content:center;
-  background: linear-gradient(135deg, var(--violet-1), var(--violet-3));
-  color:white;
-  font-size:15px;
-  box-shadow: 0 2px 12px rgba(124,58,237,0.5);
-  transition: transform .12s ease;
-  flex-shrink:0;
-}
-.send-btn:hover{ transform: translateY(-1px); }
-.send-btn:disabled{ opacity:.4; cursor:not-allowed; transform:none; }
-
-.foot-note{
-  max-width:880px; margin:8px auto 0;
-  text-align:center;
-  font-size:10.5px;
-  color: var(--text-dim);
-  opacity:.75;
-}
-
-::-webkit-scrollbar{ width:9px; }
-::-webkit-scrollbar-track{ background:transparent; }
-::-webkit-scrollbar-thumb{ background: var(--border); border-radius:8px; }
-::-webkit-scrollbar-thumb:hover{ background: var(--violet-3); }
+.empty-state{ margin-top:10vh; text-align:center; color:var(--text-dim); }
+.empty-state h2{ color:#fff; font-size:16px; margin-bottom:4px; }
 </style>
 </head>
 <body>
-
 <div class="nebula"></div>
 <canvas id="stars"></canvas>
 
-<div class="app">
+<div class="app-frame">
   <header>
     <div class="brand">
       <div class="brand-mark">⬡</div>
       <div class="brand-text">
         <h1>litelaw</h1>
-        <span>local automation agent</span>
+        <span>automation environment & control agent</span>
       </div>
     </div>
-    <div class="header-actions">
-      <div class="status-pill"><span class="status-dot"></span> auto-approve on</div>
-      <button class="ghost-btn" id="clearBtn">✦ clear session</button>
-    </div>
+    <div style="font-size:11px; color:var(--green);"><span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--green); margin-right:4px;"></span> agent synchronized</div>
   </header>
 
-  <main id="main">
-    <div class="chat-inner" id="chatInner">
-      <div class="empty-state" id="emptyState">
-        <div class="glyph">⬡</div>
-        <h2>What should litelaw run?</h2>
-        <p>Ask in plain language — it'll plan and execute terminal commands on this machine.</p>
-        <div class="suggestions">
-          <div class="chip" data-msg="list all .pdf files in my Downloads folder">list .pdf files in Downloads</div>
-          <div class="chip" data-msg="create a folder called notes and a file inside it called todo.txt with the text 'buy milk'">create a folder + file with text</div>
-          <div class="chip" data-msg="show me git status for the current directory">git status</div>
-          <div class="chip" data-msg="check disk usage and free memory">disk + memory usage</div>
-        </div>
+  <div class="workspace-layout">
+    <div class="sidebar">
+      <button class="sidebar-btn" id="newChatBtn">➔ + New Context Thread</button>
+      
+      <div>
+        <div class="sidebar-section-title">Active Configurations</div>
+        <button class="sidebar-btn" id="memVaultTabLink">✦ Long-Term Memory</button>
+        <button class="sidebar-btn" id="docEditorTabLink">📝 Document Editor</button>
+      </div>
+
+      <div>
+        <div class="sidebar-section-title">Execution History</div>
+        <div class="history-list" id="historyContainer"></div>
+      </div>
+
+      <div>
+        <div class="sidebar-section-title">Saved Buffers</div>
+        <div class="doc-list" id="savedDocsContainer"></div>
       </div>
     </div>
-  </main>
 
-  <div class="input-wrap">
-    <div class="input-inner">
-      <textarea id="msg" rows="1" placeholder="Message litelaw..."></textarea>
-      <button class="send-btn" id="sendBtn">➤</button>
+    <div class="main-stage">
+      
+      <div class="stage-panel active" id="chatPanel">
+        <div class="chat-scroller" id="chatScroller">
+          <div class="chat-container" id="chatContainer">
+            <div class="empty-state" id="emptyState">
+              <h2>Autonomous Terminal Workspace</h2>
+              <p style="font-size:12px;">Provide goals in standard plaintext. The engine compiles and acts locally.</p>
+            </div>
+          </div>
+        </div>
+        <div class="input-wrap">
+          <div class="input-inner">
+            <textarea id="msg" rows="1" placeholder="Instruct agent..."></textarea>
+            <button class="send-btn" id="sendBtn">➤</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="stage-panel" id="memoryPanel">
+        <div class="memory-workspace">
+          <h3>🧠 Core Core Long-Term Memory Guard</h3>
+          <p style="font-size:12px; color:var(--text-dim); margin:0 0 10px 0;">Statements managed here persist across engine restarts and lock rules or preferences natively into the compilation logic loop.</p>
+          <div class="memory-input-group">
+            <input type="text" id="memoryInput" class="input-field" placeholder="Append context constraint rule...">
+            <button class="sidebar-btn" id="addMemoryBtn" style="width:auto; margin:0;">Add Memory</button>
+          </div>
+          <div class="memory-card-list" id="memoryCardList"></div>
+        </div>
+      </div>
+
+      <div class="stage-panel" id="editorPanel">
+        <div class="editor-workspace">
+          <h3>📝 Dynamic Document Buffer Workspace</h3>
+          <div class="editor-meta">
+            <input type="text" id="docTitle" class="input-field" placeholder="File name context (e.g. log.txt)">
+            <button class="sidebar-btn" id="saveDocBtn" style="width:auto; margin:0;">💾 Commit Save File</button>
+            <button class="sidebar-btn" id="newDocBtn" style="width:auto; margin:0; background:rgba(255,255,255,0.04)">+ New Doc</button>
+          </div>
+          <textarea id="docContent" class="editor-textarea" placeholder="Load or write temporary strings here..."></textarea>
+        </div>
+      </div>
+
     </div>
-    <div class="foot-note">litelaw runs real shell commands on this machine with auto-approve enabled. Review requests carefully.</div>
   </div>
 </div>
 
 <script>
-// ---------- starfield ----------
-const canvas = document.getElementById('stars');
-const ctx = canvas.getContext('2d');
+// --- Canvas Starscape Logic ---
+const canvas = document.getElementById('stars'); const ctx = canvas.getContext('2d');
 let stars = [];
 function resizeCanvas(){
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-  stars = [];
-  const count = Math.floor((canvas.width * canvas.height) / 9000);
-  for(let i=0;i<count;i++){
-    stars.push({
-      x: Math.random()*canvas.width,
-      y: Math.random()*canvas.height,
-      r: Math.random()*1.3 + 0.2,
-      a: Math.random(),
-      d: (Math.random()*0.015)+0.003
-    });
-  }
+  canvas.width = window.innerWidth; canvas.height = window.innerHeight; stars = [];
+  const count = Math.floor((canvas.width * canvas.height) / 11000);
+  for(let i=0;i<count;i++) stars.push({x:Math.random()*canvas.width, y:Math.random()*canvas.height, r:Math.random()*1.2+0.2, a:Math.random(), d:(Math.random()*0.01)+0.002});
 }
 function drawStars(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
-  for(const s of stars){
-    s.a += s.d;
-    if(s.a > 1 || s.a < 0) s.d *= -1;
-    ctx.beginPath();
-    ctx.fillStyle = `rgba(196,181,253,${Math.abs(Math.sin(s.a))})`;
-    ctx.arc(s.x, s.y, s.r, 0, Math.PI*2);
-    ctx.fill();
-  }
+  for(const s of stars){ s.a += s.d; if(s.a>1||s.a<0) s.d*=-1; ctx.beginPath(); ctx.fillStyle=`rgba(196,181,253,${Math.abs(Math.sin(s.a))})`; ctx.arc(s.x, s.y, s.r, 0, Math.PI*2); ctx.fill(); }
   requestAnimationFrame(drawStars);
 }
-window.addEventListener('resize', resizeCanvas);
-resizeCanvas();
-drawStars();
+window.addEventListener('resize', resizeCanvas); resizeCanvas(); drawStars();
 
-// ---------- chat logic ----------
-const chatInner = document.getElementById('chatInner');
+// --- Core App Management Workspace Architecture ---
+let currentChatId = "";
+let currentDocId = "default-doc";
+
+const chatContainer = document.getElementById('chatContainer');
 const emptyState = document.getElementById('emptyState');
 const msgEl = document.getElementById('msg');
 const sendBtn = document.getElementById('sendBtn');
-const clearBtn = document.getElementById('clearBtn');
-const mainEl = document.getElementById('main');
+const chatScroller = document.getElementById('chatScroller');
 
-function scrollBottom(){
-  mainEl.scrollTop = mainEl.scrollHeight;
+// Workspace View Toggles
+function switchView(targetPanelId, triggerElement=null) {
+  document.querySelectorAll('.stage-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.sidebar-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.list-item-link').forEach(l => l.classList.remove('active'));
+  
+  document.getElementById(targetPanelId).classList.add('active');
+  if(triggerElement) triggerElement.classList.add('active');
 }
 
-function hideEmptyState(){
+document.getElementById('memVaultTabLink').addEventListener('click', (e) => {
+  switchView('memoryPanel', e.currentTarget);
+  loadMemoryWorkspace();
+});
+document.getElementById('docEditorTabLink').addEventListener('click', (e) => {
+  switchView('editorPanel', e.currentTarget);
+  loadDocument(currentDocId);
+});
+
+// Sync Core Metadata Store View Left Sidebar
+async function syncWorkspaceManifest() {
+  const res = await fetch('/api/init');
+  const data = await res.json();
+  
+  // Update Executed Threads History List
+  const histContainer = document.getElementById('historyContainer');
+  histContainer.innerHTML = "";
+  data.chats.forEach(c => {
+    const link = document.createElement('div');
+    link.className = `list-item-link ${c.id === currentChatId ? 'active' : ''}`;
+    link.textContent = "⬡ " + c.title;
+    link.addEventListener('click', () => selectChatThread(c.id));
+    histContainer.appendChild(link);
+  });
+
+  // Update System Buffer Document Collection
+  const docContainer = document.getElementById('savedDocsContainer');
+  docContainer.innerHTML = "";
+  data.documents.forEach(d => {
+    const link = document.createElement('div');
+    link.className = `list-item-link ${d.id === currentDocId ? 'active' : ''}`;
+    link.textContent = "📝 " + d.title;
+    link.addEventListener('click', () => {
+      currentDocId = d.id;
+      switchView('editorPanel', document.getElementById('docEditorTabLink'));
+      loadDocument(d.id);
+    });
+    docContainer.appendChild(link);
+  });
+}
+
+// Select/Load Chat Context History Thread
+async function selectChatThread(chatId) {
+  currentChatId = chatId;
+  switchView('chatPanel');
   if(emptyState) emptyState.style.display = 'none';
+  chatContainer.innerHTML = "";
+  
+  const res = await fetch(`/api/chat/get?chat_id=${chatId}`);
+  if(res.ok) {
+    const data = await res.json();
+    data.steps.forEach(step => addStepNodeToStage(step));
+  }
+  syncWorkspaceManifest();
 }
 
-function addUserBubble(text){
-  hideEmptyState();
-  const row = document.createElement('div');
-  row.className = 'row user';
-  row.innerHTML = `<div class="bubble user"></div>`;
-  row.querySelector('.bubble').textContent = text;
-  chatInner.appendChild(row);
-  scrollBottom();
-}
+// Spin a New Context State
+document.getElementById('newChatBtn').addEventListener('click', async () => {
+  const res = await fetch('/api/chat/new', {method:'POST'});
+  const data = await res.json();
+  currentChatId = data.chat_id;
+  if(emptyState) emptyState.style.display = 'none';
+  chatContainer.innerHTML = `
+    <div class="empty-state">
+      <h2>Fresh Operational Thread State Enabled</h2>
+      <p style="font-size:12px;">Long-term context memory configurations are integrated dynamically into this agent frame.</p>
+    </div>`;
+  syncWorkspaceManifest();
+  switchView('chatPanel');
+});
 
-function addThinkingRow(){
-  const row = document.createElement('div');
-  row.className = 'row assistant';
-  row.id = 'thinkingRow';
-  row.innerHTML = `<div class="thinking-row">🤖 thinking
-    <span class="thinking-dots"><span></span><span></span><span></span></span>
-  </div>`;
-  chatInner.appendChild(row);
-  scrollBottom();
-}
-
-function removeThinkingRow(){
-  const el = document.getElementById('thinkingRow');
-  if(el) el.remove();
-}
-
-function addStepNode(step){
+// UI Node Visual Injection Mechanics
+function addStepNodeToStage(step) {
   const row = document.createElement('div');
   row.className = 'row assistant';
 
-  if(step.type === 'thought'){
+  if(step.type === 'user_msg') {
+    row.className = 'row user';
+    row.innerHTML = `<div class="bubble user"></div>`;
+    row.querySelector('.bubble').textContent = step.text;
+  } else if(step.type === 'thought'){
     row.innerHTML = `<div class="thought"></div>`;
     row.querySelector('.thought').textContent = step.text;
   } else if(step.type === 'command'){
-    row.innerHTML = `
-      <div class="term-block">
-        <div class="term-head"><span class="term-dots"><span></span><span></span><span></span></span> command</div>
-        <div class="term-body command"></div>
-      </div>`;
+    row.innerHTML = `<div class="term-block"><div class="term-head"><span class="term-dots"><span></span></span> operational syntax command execution</div><div class="term-body command"></div></div>`;
     row.querySelector('.term-body').textContent = step.text;
   } else if(step.type === 'output'){
-    row.innerHTML = `
-      <div class="term-block">
-        <div class="term-head"><span class="term-dots"><span></span><span></span><span></span></span> output</div>
-        <div class="term-body output"></div>
-      </div>`;
-    row.querySelector('.term-body').textContent = step.text || '(no output)';
+    row.innerHTML = `<div class="term-block"><div class="term-head"><span class="term-dots"><span></span></span> runtime captured environment buffer</div><div class="term-body output"></div></div>`;
+    row.querySelector('.term-body').textContent = step.text || '(empty standard output buffer captured)';
   } else if(step.type === 'final'){
     row.innerHTML = `<div class="bubble final"></div>`;
     row.querySelector('.bubble').textContent = step.text;
   } else if(step.type === 'warning'){
-    row.innerHTML = `<div class="warning-line"></div>`;
-    row.querySelector('.warning-line').textContent = '⚠ ' + step.text;
+    row.innerHTML = `<div style="color:var(--yellow); font-size:11px; padding:4px;">⚠ ${step.text}</div>`;
   } else if(step.type === 'error'){
-    row.innerHTML = `<div class="error-line"></div>`;
-    row.querySelector('.error-line').textContent = '✕ ' + step.text;
+    row.innerHTML = `<div style="color:var(--red); font-size:11px; padding:4px;">✕ ${step.text}</div>`;
   }
-  chatInner.appendChild(row);
-  scrollBottom();
+  chatContainer.appendChild(row);
+  chatScroller.scrollTop = chatScroller.scrollHeight;
 }
 
-async function sendMessage(){
+// Action Trigger Agent Transaction pipeline
+async function dispatchMessage(){
   const text = msgEl.value.trim();
   if(!text) return;
-  msgEl.value = '';
-  msgEl.style.height = 'auto';
-  sendBtn.disabled = true;
+  msgEl.value = ''; msgEl.style.height = 'auto'; sendBtn.disabled = true;
 
-  addUserBubble(text);
-  addThinkingRow();
+  if (emptyState) emptyState.style.display = 'none';
+  addStepNodeToStage({type: 'user_msg', text: text});
 
-  try{
+  // Structural Thinking Indicator Component Inject
+  const thinkRow = document.createElement('div');
+  thinkRow.className = 'row assistant'; thinkRow.id = 'agentPulseIndicator';
+  thinkRow.innerHTML = `<div style="font-size:12px; color:var(--text-dim); padding:4px;">🤖 thinking...</div>`;
+  chatContainer.appendChild(thinkRow);
+  chatScroller.scrollTop = chatScroller.scrollHeight;
+
+  try {
     const res = await fetch('/api/chat', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({message: text})
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({message: text, chat_id: currentChatId})
     });
     const data = await res.json();
-    removeThinkingRow();
+    currentChatId = data.chat_id;
+    
+    const pulse = document.getElementById('agentPulseIndicator'); if(pulse) pulse.remove();
+
     for(const step of (data.steps || [])){
-      addStepNode(step);
-      await new Promise(r => setTimeout(r, 120));
+      addStepNodeToStage(step);
+      await new Promise(r => setTimeout(r, 60));
     }
-  }catch(e){
-    removeThinkingRow();
-    addStepNode({type:'error', text: 'Could not reach litelaw backend: ' + e});
-  }finally{
-    sendBtn.disabled = false;
-    msgEl.focus();
+    syncWorkspaceManifest();
+  } catch(e) {
+    const pulse = document.getElementById('agentPulseIndicator'); if(pulse) pulse.remove();
+    addStepNodeToStage({type:'error', text: 'Lost interface sync pipeline connection: ' + e});
+  } finally {
+    sendBtn.disabled = false; msgEl.focus();
   }
 }
 
-sendBtn.addEventListener('click', sendMessage);
-msgEl.addEventListener('keydown', (e) => {
-  if(e.key === 'Enter' && !e.shiftKey){
-    e.preventDefault();
-    sendMessage();
-  }
-});
-msgEl.addEventListener('input', () => {
-  msgEl.style.height = 'auto';
-  msgEl.style.height = Math.min(msgEl.scrollHeight, 160) + 'px';
-});
+sendBtn.addEventListener('click', dispatchMessage);
+msgEl.addEventListener('keydown', (e) => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); dispatchMessage(); } });
 
-document.querySelectorAll('.chip').forEach(chip => {
-  chip.addEventListener('click', () => {
-    msgEl.value = chip.getAttribute('data-msg');
-    sendMessage();
+// --- Long-Term Memory View Handlers ---
+async function loadMemoryWorkspace() {
+  const res = await fetch('/api/init');
+  const data = await res.json();
+  const listEl = document.getElementById('memoryCardList');
+  listEl.innerHTML = "";
+  
+  data.memories.forEach((m, idx) => {
+    const item = document.createElement('div');
+    item.className = "memory-item";
+    item.innerHTML = `<span>${m}</span><button class="delete-btn" data-idx="${idx}">✕ Delete</button>`;
+    item.querySelector('.delete-btn').addEventListener('click', async (e) => {
+      const targetIdx = e.currentTarget.getAttribute('data-idx');
+      const delRes = await fetch('/api/memories/delete', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({index: parseInt(targetIdx)})
+      });
+      if(delRes.ok) loadMemoryWorkspace();
+    });
+    listEl.appendChild(item);
   });
+}
+
+document.getElementById('addMemoryBtn').addEventListener('click', async () => {
+  const input = document.getElementById('memoryInput');
+  const text = input.value.strip ? input.value.strip() : input.value.trim();
+  if(!text) return;
+  const res = await fetch('/api/memories/add', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({text: text})
+  });
+  if(res.ok) { input.value = ""; loadMemoryWorkspace(); }
 });
 
-clearBtn.addEventListener('click', async () => {
-  await fetch('/api/clear', {method:'POST'});
-  chatInner.innerHTML = '';
-  chatInner.appendChild(emptyState);
-  emptyState.style.display = 'block';
+// --- Document Workspace Tool Handlers ---
+async function loadDocument(docId) {
+  currentDocId = docId;
+  const res = await fetch(`/api/documents/get?doc_id=${docId}`);
+  if(res.ok) {
+    const data = await res.json();
+    document.getElementById('docTitle').value = data.title;
+    document.getElementById('docContent').value = data.content;
+  }
+}
+
+document.getElementById('saveDocBtn').addEventListener('click', async () => {
+  const title = document.getElementById('docTitle').value;
+  const content = document.getElementById('docContent').value;
+  const res = await fetch('/api/documents/save', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({doc_id: currentDocId, title: title, content: content})
+  });
+  if(res.ok) { syncWorkspaceManifest(); alert("Buffer state committed successfully."); }
 });
+
+document.getElementById('newDocBtn').addEventListener('click', async () => {
+  const res = await fetch('/api/documents/new', {method:'POST'});
+  const data = await res.json();
+  currentDocId = data.doc_id;
+  loadDocument(data.doc_id);
+  syncWorkspaceManifest();
+});
+
+// Initialize Framework Workspace state configurations on startup
+syncWorkspaceManifest();
+switchView('chatPanel');
 </script>
 </body>
 </html>
@@ -694,7 +747,7 @@ clearBtn.addEventListener('click', async () => {
 
 if __name__ == "__main__":
     print("====================================================")
-    print(" ⬡  litelaw web UI starting")
-    print(" Open: http://localhost:5000")
+    print(" ⬡  litelaw agent web environment runtime dashboard")
+    print(" Local Access Interface address: http://localhost:5000")
     print("====================================================")
     app.run(host="0.0.0.0", port=5000, debug=False)
