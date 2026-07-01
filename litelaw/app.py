@@ -469,7 +469,7 @@ textarea#msg{ flex:1; resize:none; background:transparent; border:none; outline:
 
       <div class="stage-panel" id="memoryPanel">
         <div class="memory-workspace">
-          <h3>🧠 Core Core Long-Term Memory Guard</h3>
+          <h3>🧠 Core Long-Term Memory Guard</h3>
           <p style="font-size:12px; color:var(--text-dim); margin:0 0 10px 0;">Statements managed here persist across engine restarts and lock rules or preferences natively into the compilation logic loop.</p>
           <div class="memory-input-group">
             <input type="text" id="memoryInput" class="input-field" placeholder="Append context constraint rule...">
