@@ -1,4 +1,4 @@
-![litelaw banner](banner1.jpeg)
+![litelaw banner](banner.jpeg)
 # <p align="center">⬡</p>
 
 <h1 align="center">litelaw</h1>
