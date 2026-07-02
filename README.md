@@ -234,39 +234,7 @@ cd litelaw
 
 ---
 
-## 2. Create a virtual environment
-
-Linux/macOS
-
-```bash
-python3 -m venv .venv
-```
-
-Windows
-
-```powershell
-python -m venv .venv
-```
-
----
-
-## 3. Activate it
-
-Linux/macOS
-
-```bash
-source .venv/bin/activate
-```
-
-Windows
-
-```powershell
-.venv\Scripts\activate
-```
-
----
-
-## 4. Install dependencies
+## 2. Install dependencies
 
 ```bash
 pip install flask pillow python-docx pypdf ddgs
@@ -274,7 +242,7 @@ pip install flask pillow python-docx pypdf ddgs
 
 ---
 
-## 5. Start Ollama
+## 3. Start Ollama
 
 ```bash
 ollama serve
@@ -282,7 +250,7 @@ ollama serve
 
 ---
 
-## 6. Download the model
+## 4. Download the model
 
 ```bash
 ollama pull gemma3:1b
@@ -290,9 +258,10 @@ ollama pull gemma3:1b
 
 ---
 
-## 7. Launch litelaw
+## 5. Launch litelaw
 
 ```bash
+cd /path/to/litelaw
 python app.py
 ```
 
@@ -333,8 +302,6 @@ Find every ISO in Downloads.
 Search the web for the latest Linux kernel.
 
 Convert this PDF into a DOCX.
-
-Remember that I prefer printf over echo.
 
 Create a new document called notes.txt.
 
