@@ -1,53 +1,62 @@
 ![litelaw banner](banner1.jpeg)
-# ⚡ litelaw
+# <p align="center">⬡</p>
 
-> A lightweight autonomous AI workspace for local computer automation, persistent memory, document editing, file conversion, and intelligent terminal control powered by Ollama.
+<h1 align="center">litelaw</h1>
+
+<p align="center">
+  <b>A lightweight local AI workspace for autonomous computer automation.</b><br>
+  Built around Ollama with a modern web interface, persistent memory, multi-agent workflows, document editing, file conversion, and local-first execution.
+</p>
+
+<p align="center">
+
+![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![Flask](https://img.shields.io/badge/Flask-Web_UI-000000?style=for-the-badge&logo=flask)
+![Ollama](https://img.shields.io/badge/Ollama-Local_LLM-111111?style=for-the-badge)
+![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
+
+</p>
 
 ---
 
-## ✨ Overview
+## Overview
 
-**litelaw** is a local AI workspace that combines an autonomous terminal agent with a modern desktop-inspired web interface.
+**litelaw** is a lightweight local AI workspace that's perfect for you.
 
-Instead of acting as a simple chatbot, litelaw can:
+Instead of simply chatting, litelaw can reason through tasks, execute terminal commands, search the web, maintain long-term memory, edit documents, convert files, and coordinate multiple AI agents to solve complex workflows.
 
-* execute terminal commands
-* remember information across sessions
-* manage multiple chat threads
-* edit documents
-* convert files
-* manage reminders
-* perform live web searches
-* launch websites
-* work entirely with locally hosted AI models through **Ollama**
-
-Everything runs locally, giving you full control over your data and workflow.
+Everything is designed around being **fast**, **local**, and **minimal**.
 
 ---
 
 # Features
 
-## 🤖 Autonomous AI Agent
+## 🤖 AI Agent
 
-* Local AI powered by Ollama
-* Multi-step reasoning loop
-* Automatic terminal command execution
-* Command output feedback
-* Context-aware conversations
-* Auto-approved execution mode (configurable)
-* Cross-platform system prompts
-* Linux, macOS, and Windows support
+- Autonomous terminal execution
+- Local Ollama integration
+- Context-aware conversations
+- Persistent conversation history
+- Automatic context trimming
+- Structured reasoning loop
+- Local-first architecture
 
 ---
 
-## 💬 Chat Workspace
+## 👥 Multi-Agent Mode
 
-* Multiple chat sessions
-* Chat history sidebar
-* Create new conversations
-* Automatic conversation titles
-* Persistent conversation storage
-* Context trimming to prevent token overflow
+Planner → Researcher → Coder → Executor → Reviewer
+
+Each request can be broken into multiple specialized agents that collaborate to complete complex tasks.
+
+Features include:
+
+- Planner-generated task queues
+- Dedicated specialist agents
+- Live execution progress
+- Reviewer verification
+- Visual task tracking
+- Shared context between agents
 
 ---
 
@@ -55,185 +64,151 @@ Everything runs locally, giving you full control over your data and workflow.
 
 Long-term memory survives application restarts.
 
-Examples include:
+Store:
 
-* user preferences
-* workflow rules
-* coding styles
-* frequently used instructions
+- User preferences
+- Coding styles
+- Frequently used instructions
+- Project-specific context
+- Permanent AI behavior rules
 
-Memories are automatically injected into the AI system prompt for every conversation.
+---
+
+## 💬 Chat Workspace
+
+- Multiple conversations
+- Chat history
+- Automatic thread titles
+- Conversation persistence
+- Modern terminal-inspired interface
 
 ---
 
 ## 📝 Document Editor
 
-Built-in lightweight editor featuring:
+Built-in document workspace for:
 
-* create documents
-* save documents
-* load documents
-* rename documents
-* persistent storage
-* sidebar document browser
+- Notes
+- Drafts
+- Temporary files
+- Prompt storage
+- Scratchpad editing
 
-Perfect for:
+Supports:
 
-* notes
-* prompts
-* scratchpads
-* code snippets
-* task lists
+- Multiple saved documents
+- Instant saving
+- Persistent storage
 
 ---
 
 ## 🔄 File Converter
 
-Supports multiple document and image conversions.
+Convert between common formats.
 
-### Supported conversions
+### Documents
 
-| From | To   |
-| ---- | ---- |
-| PDF  | TXT  |
-| PDF  | DOCX |
-| DOCX | PDF  |
-| DOCX | TXT  |
-| PNG  | JPEG |
-| JPEG | PNG  |
-| PNG  | PDF  |
-| JPEG | PDF  |
+- PDF → TXT
+- PDF → DOCX
+- DOCX → TXT
+- DOCX → PDF
 
-Includes:
+### Images
 
-* drag & drop interface
-* browser downloads
-* no external services required
-
----
-
-## 📅 Calendar & Reminders
-
-* monthly calendar
-* add reminders
-* delete reminders
-* persistent reminder storage
-* reminder indicators
-
----
-
-## 🧮 Calculator
-
-Built-in calculator featuring:
-
-* basic arithmetic
-* keyboard-friendly interface
-* lightweight operation
-* no external libraries
+- PNG ↔ JPEG
+- PNG → PDF
+- JPEG → PDF
 
 ---
 
 ## 🌐 Web Utilities
 
-The agent can:
+Integrated web tools including:
 
-* search the web
-* open websites
-* launch platform-specific searches
-* use browser integration
+- Live web search
+- Browser launching
+- URL opening
+- Search automation
+- Platform-specific search shortcuts
 
-Examples:
+---
 
-* Google searches
-* YouTube searches
-* documentation lookup
-* opening URLs directly
+## 📅 Calendar & Reminders
+
+- Calendar view
+- Reminder management
+- Persistent reminders
+- Daily planning
+
+---
+
+## 🧮 Calculator
+
+Built directly into the workspace.
+
+- Basic arithmetic
+- Fast calculations
+- Keyboard-friendly
+
+---
+
+## 💻 Computer Automation
+
+Execute local commands using AI.
+
+Examples include:
+
+- File management
+- Git workflows
+- Environment inspection
+- Package management
+- Archive extraction
+- System diagnostics
+- Networking tools
+- Python automation
 
 ---
 
 ## 🎨 Modern Interface
 
-Features include:
-
-* desktop-style layout
-* dark futuristic theme
-* animated starfield background
-* responsive design
-* JetBrains Mono typography
-* custom sidebar
-* smooth scrolling
-* terminal-inspired command blocks
-
----
-
-## 💾 Persistent Storage
-
-All workspace data is stored locally.
-
-Stored data includes:
-
-* chat history
-* memories
-* documents
-* reminders
-
-No cloud database required.
+- Dark futuristic theme
+- Purple aesthetic
+- Responsive layout
+- JetBrains Mono Nerd Font
+- Sidebar navigation
+- Smooth scrolling
+- Terminal-inspired design
 
 ---
 
 # Project Structure
 
 ```text
-.
-├── app.py                 # Flask web application
-├── litelaw.py             # AI engine & terminal agent
-├── litelaw_store.json     # Persistent storage
-└── README.md
+litelaw/
+│
+├── app.py
+├── litelaw.py
+└── litelaw_store.json
 ```
 
 ---
 
-# Requirements
+# Prerequisites
 
-* Python 3.10+
-* Ollama
-* A downloaded Ollama model (default: `gemma3:1b`)
+Before installing, ensure you have:
 
-Python packages:
+- Python 3.10 or newer
+- Ollama installed
+- Git (optional)
+- A supported Ollama model
 
-```bash
-pip install flask pillow python-docx pypdf
+Recommended model:
+
+```
+gemma3:1b
 ```
 
-For web search support:
-
-```bash
-pip install ddgs
-```
-
----
-
-# Installing
-
-Clone the repository:
-
-```bash
-git clone https://github.com/yourusername/litelaw.git
-```
-
-Enter the project:
-
-```bash
-cd litelaw
-```
-
-Install dependencies:
-
-```bash
-pip install flask pillow python-docx pypdf ddgs
-```
-
-Install Ollama:
+Pull the model:
 
 ```bash
 ollama pull gemma3:1b
@@ -245,107 +220,162 @@ Start Ollama:
 ollama serve
 ```
 
-Launch the web interface:
+---
+
+# Installation
+
+## 1. Clone the repository
+
+```bash
+git clone https://github.com/excellogalihs/litelaw.git
+
+cd litelaw
+```
+
+---
+
+## 2. Create a virtual environment
+
+Linux/macOS
+
+```bash
+python3 -m venv .venv
+```
+
+Windows
+
+```powershell
+python -m venv .venv
+```
+
+---
+
+## 3. Activate it
+
+Linux/macOS
+
+```bash
+source .venv/bin/activate
+```
+
+Windows
+
+```powershell
+.venv\Scripts\activate
+```
+
+---
+
+## 4. Install dependencies
+
+```bash
+pip install flask pillow python-docx pypdf ddgs
+```
+
+---
+
+## 5. Start Ollama
+
+```bash
+ollama serve
+```
+
+---
+
+## 6. Download the model
+
+```bash
+ollama pull gemma3:1b
+```
+
+---
+
+## 7. Launch litelaw
 
 ```bash
 python app.py
+```
+
+Open:
+
+```
+http://127.0.0.1:5000
+```
+
+---
+
+# Requirements
+
+```
+Python >= 3.10
+
+flask
+pillow
+python-docx
+pypdf
+ddgs
+Ollama
 ```
 
 ---
 
 # Usage
 
-Open your browser and visit:
+Ask litelaw naturally.
 
-```text
-http://127.0.0.1:5000
+Example prompts:
+
 ```
+Create a Python Flask app.
 
-You can then:
+Find every ISO in Downloads.
 
-* create AI conversations
-* manage memories
-* edit documents
-* convert files
-* use the calculator
-* manage reminders
-* automate terminal tasks
+Search the web for the latest Linux kernel.
 
----
+Convert this PDF into a DOCX.
 
-# Example Prompts
+Remember that I prefer printf over echo.
 
-```text
-Create a folder called Projects
+Create a new document called notes.txt.
+
+Open YouTube and search for lo-fi music.
 ```
-
-```text
-Find every .pdf file in Downloads
-```
-
-```text
-Search the web for Python async tutorials
-```
-
-```text
-Open YouTube and search for Arch Linux
-```
-
-```text
-Check my disk usage
-```
-
-```text
-Show running Python processes
-```
-
----
-
-# Configuration
-
-Inside `litelaw.py` you can customize:
-
-```python
-MODEL = "gemma3:1b"
-
-AUTO_APPROVE = True
-
-MAX_CONTEXT_MESSAGES = 20
-```
-
----
-
-# Technologies Used
-
-* Python
-* Flask
-* Ollama
-* HTML
-* CSS
-* JavaScript
-* Pillow
-* python-docx
-* pypdf
-* DDGS
 
 ---
 
 # Roadmap
 
-Planned improvements include:
+- [ ] Deep Research mode
+- [ ] Better browser automation
+- [ ] Voice interaction
+- [ ] Plugin system
+- [ ] Native code editor
+- [ ] Workspace tabs
+- [ ] Model manager
+- [ ] RAG knowledge base
+- [ ] Better web scraping
+- [ ] OCR support
+- [ ] Image generation
+- [ ] Workflow automation
+- [ ] MCP integration
+- [ ] Local vector memory
 
-* Browser automation
-* Voice input
-* Vision support
-* Plugin system
-* Better file indexing
-* Local RAG
-* Workspace search
-* Native markdown preview
-* Code editor
-* Multiple AI providers
-* Workflow automation
-* Deep research mode
+---
+
+# Philosophy
+
+litelaw is built around four ideas:
+
+- Local-first
+- Lightweight
+- Transparent
+- Fast
+
+No unnecessary cloud services.
+
+No subscriptions.
+
+Just your computer and your AI.
 
 ---
 
@@ -353,7 +383,10 @@ Planned improvements include:
 
 Contributions are welcome.
 
-Feel free to open issues, suggest improvements, or submit pull requests.
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Open a Pull Request
 
 ---
 
@@ -363,6 +396,10 @@ This project is licensed under the MIT License.
 
 ---
 
-## ⭐ If you enjoy this project...
+<p align="center">
+⬡<br><br>
 
-Give the repository a ⭐ to support future development!
+<b>litelaw</b><br>
+
+Lightweight Local AI Workspace
+</p>
