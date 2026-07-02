@@ -1,620 +1,782 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>litelaw — Local AI Workspace</title>
-  
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-  
-  <style>
-    @font-face {
-      font-family: 'JetBrainsMono Nerd Font';
-      src: url('https://cdn.jsdelivr.net/gh/ryanoasis/nerd-fonts@v3.2.1/patched-fonts/JetBrainsMono/Ligatures/Regular/JetBrainsMonoNerdFontMono-Regular.ttf') format('truetype');
-      font-weight: 400; font-style: normal; font-display: swap;
-    }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>litelaw | Local AI Workspace</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        :root {
+            --bg-deep: #0a0512;
+            --bg-space: #12072B;
+            --purple-glow: #9d4edd;
+            --neon-magenta: #ff007f;
+            --neon-purple: #b5179e;
+            --text-main: #f3eeff;
+            --text-muted: #a393bf;
+            --glass-bg: rgba(25, 12, 51, 0.45);
+            --glass-border: rgba(157, 78, 221, 0.2);
+            --terminal-dark: #06030a;
+        }
 
-    :root {
-      --bg-space: #040209;
-      --bg-nebula: #0b051b;
-      --bg-card: #110722cc;
-      --border-glow: #4a2993;
-      --border-soft: #211142;
-      --neon-purple: #b693f3;
-      --neon-magenta: #f471b5;
-      --neon-cyan: #22d2ed;
-      --text-main: #f2f0fe;
-      --text-muted: #9283b6;
-      --terminal-black: #030107;
-      --mono: 'JetBrainsMono Nerd Font', 'JetBrains Mono', monospace;
-    }
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
 
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
+        html {
+            scroll-behavior: smooth;
+        }
 
-    body {
-      background-color: var(--bg-space);
-      color: var(--text-main);
-      font-family: var(--mono);
-      line-height: 1.6;
-      overflow-x: hidden;
-      position: relative;
-    }
+        body {
+            font-family: 'JetBrains Mono', monospace;
+            background: linear-gradient(135deg, var(--bg-deep) 0%, var(--bg-space) 100%);
+            color: var(--text-main);
+            overflow-x: hidden;
+            line-height: 1.6;
+        }
 
-    /* Cosmic Outer Space Purple Background Layers */
-    .space-bg {
-      position: fixed;
-      inset: 0;
-      z-index: -1;
-      background: 
-        radial-gradient(ellipse 1000px 700px at 15% 15%, rgba(146, 50, 233, 0.16), transparent 70%),
-        radial-gradient(ellipse 800px 800px at 85% 75%, rgba(244, 113, 181, 0.1), transparent 60%),
-        linear-gradient(180deg, var(--bg-nebula) 0%, var(--bg-space) 100%);
-    }
+        /* Ambient Space Glow Background */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle at 15% 25%, rgba(255, 0, 127, 0.06) 0%, transparent 45%),
+                        radial-gradient(circle at 85% 75%, rgba(157, 78, 221, 0.09) 0%, transparent 45%);
+            z-index: -1;
+            pointer-events: none;
+        }
 
-    .stars {
-      position: fixed;
-      inset: 0;
-      z-index: -1;
-      background-image: radial-gradient(white, rgba(255,255,255,.12) 1.5px, transparent 35px);
-      background-size: 220px 220px;
-      opacity: 0.25;
-    }
+        /* Navigation Grid */
+        nav {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1.5rem 5%;
+            border-bottom: 1px solid var(--glass-border);
+            backdrop-filter: blur(12px);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background: rgba(10, 5, 18, 0.75);
+        }
 
-    /* Container */
-    .container {
-      max-width: 1140px;
-      margin: 0 auto;
-      padding: 0 24px;
-    }
+        .logo {
+            font-size: 1.4rem;
+            font-weight: 700;
+            letter-spacing: 2px;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
 
-    /* Navigation */
-    header {
-      background: rgba(11, 5, 27, 0.8);
-      backdrop-filter: blur(16px);
-      border-bottom: 1px solid var(--border-soft);
-      position: fixed;
-      width: 100%;
-      top: 0;
-      z-index: 100;
-    }
+        .logo span {
+            color: var(--neon-magenta);
+            text-shadow: 0 0 10px var(--neon-magenta);
+        }
 
-    .nav-bar {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      height: 76px;
-    }
+        nav ul {
+            display: flex;
+            list-style: none;
+            gap: 2rem;
+        }
 
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      font-weight: 800;
-      font-size: 1.3rem;
-      text-decoration: none;
-      color: var(--text-main);
-      letter-spacing: -0.5px;
-    }
+        nav a {
+            color: var(--text-muted);
+            text-decoration: none;
+            transition: all 0.3s ease;
+            font-size: 0.85rem;
+        }
 
-    .brand span {
-      background: linear-gradient(90deg, var(--neon-purple), var(--neon-magenta));
-      -webkit-background-clip: text;
-      background-clip: text;
-      color: transparent;
-    }
+        nav a:hover {
+            color: var(--text-main);
+            text-shadow: 0 0 8px var(--purple-glow);
+        }
 
-    .nav-links {
-      display: flex;
-      gap: 28px;
-      align-items: center;
-    }
+        /* Hero Element */
+        .hero {
+            min-height: 80vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 0 1rem;
+        }
 
-    .nav-links a {
-      color: var(--text-muted);
-      text-decoration: none;
-      font-size: 13px;
-      transition: color 0.2s ease;
-    }
+        .hero h1 {
+            font-size: 5.5rem;
+            font-weight: 700;
+            letter-spacing: -2px;
+            margin-bottom: 1rem;
+            background: linear-gradient(to right, #fff 20%, var(--purple-glow) 60%, var(--neon-magenta) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            filter: drop-shadow(0 0 25px rgba(157, 78, 221, 0.35));
+        }
 
-    .nav-links a:hover {
-      color: var(--neon-purple);
-    }
+        .hero p {
+            font-size: 1.25rem;
+            max-width: 750px;
+            color: var(--text-muted);
+            margin-bottom: 3rem;
+        }
 
-    /* GitHub Action Button */
-    .btn-github {
-      display: inline-flex;
-      align-items: center;
-      gap: 10px;
-      background: rgba(182, 147, 243, 0.06);
-      border: 1px solid var(--border-glow);
-      color: #fff;
-      padding: 10px 18px;
-      border-radius: 8px;
-      font-family: var(--mono);
-      font-size: 13px;
-      text-decoration: none;
-      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-    }
+        .btn-github {
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+            background: linear-gradient(45deg, var(--neon-purple), var(--neon-magenta));
+            color: white;
+            padding: 1.1rem 2.8rem;
+            border-radius: 4px;
+            text-decoration: none;
+            font-weight: 500;
+            letter-spacing: 1px;
+            transition: all 0.3s ease;
+            box-shadow: 0 0 25px rgba(255, 0, 127, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
 
-    .btn-github:hover {
-      background: rgba(182, 147, 243, 0.15);
-      border-color: var(--neon-cyan);
-      box-shadow: 0 0 20px rgba(34, 210, 237, 0.25);
-      transform: translateY(-1px);
-    }
+        .btn-github:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 0 40px rgba(255, 0, 127, 0.7);
+        }
 
-    /* Hero Section */
-    .hero {
-      padding: 180px 0 90px 0;
-      text-align: center;
-    }
+        /* Content Base Wrapper */
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 4rem 2rem;
+        }
 
-    .badge {
-      display: inline-block;
-      padding: 6px 14px;
-      background: rgba(34, 210, 237, 0.05);
-      border: 1px solid rgba(34, 210, 237, 0.25);
-      color: var(--neon-cyan);
-      border-radius: 30px;
-      font-size: 11px;
-      margin-bottom: 24px;
-      letter-spacing: 1px;
-    }
+        section {
+            margin-bottom: 8rem;
+        }
 
-    .hero h2 {
-      font-size: 3.4rem;
-      font-weight: 800;
-      line-height: 1.15;
-      margin-bottom: 24px;
-      letter-spacing: -1.5px;
-    }
+        h2 {
+            font-size: 2.2rem;
+            margin-bottom: 1rem;
+            text-align: center;
+            letter-spacing: 2px;
+        }
 
-    .hero h2 span {
-      background: linear-gradient(135deg, var(--neon-purple) 20%, var(--neon-magenta) 80%);
-      -webkit-background-clip: text;
-      background-clip: text;
-      color: transparent;
-    }
+        .section-desc {
+            text-align: center;
+            color: var(--text-muted);
+            margin-bottom: 3.5rem;
+            font-size: 0.95rem;
+        }
 
-    .hero p {
-      max-width: 760px;
-      margin: 0 auto 40px auto;
-      font-size: 15px;
-      color: var(--text-muted);
-    }
+        h2::after {
+            content: ' ⬡ ';
+            display: block;
+            font-size: 1rem;
+            color: var(--neon-magenta);
+            margin-top: 0.5rem;
+        }
 
-    .hero-ctas {
-      display: flex;
-      justify-content: center;
-      gap: 16px;
-    }
+        /* Grouped Features Dashboard Layout */
+        .category-title {
+            font-size: 1.1rem;
+            color: var(--neon-magenta);
+            border-left: 2px solid var(--neon-magenta);
+            padding-left: 10px;
+            margin: 2.5rem 0 1.5rem 0;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
 
-    .btn-primary {
-      display: inline-flex;
-      align-items: center;
-      background: linear-gradient(135deg, #6d28d9, #4c1d95);
-      border: 1px solid rgba(182, 147, 243, 0.4);
-      color: #fff;
-      padding: 14px 28px;
-      border-radius: 8px;
-      font-family: var(--mono);
-      font-size: 14px;
-      font-weight: 600;
-      text-decoration: none;
-      transition: all 0.2s ease;
-      box-shadow: 0 4px 25px rgba(109, 40, 217, 0.35);
-    }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 1.5rem;
+        }
 
-    .btn-primary:hover {
-      box-shadow: 0 4px 30px rgba(109, 40, 217, 0.55);
-      transform: translateY(-1px);
-    }
+        .card {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            padding: 2rem;
+            border-radius: 6px;
+            backdrop-filter: blur(6px);
+            transition: all 0.3s ease;
+            display: flex;
+            flex-direction: column;
+        }
 
-    /* Modular Interface Layout */
-    .section-box {
-      background: var(--bg-card);
-      border: 1px solid var(--border-soft);
-      border-radius: 16px;
-      padding: 44px;
-      margin-bottom: 48px;
-      backdrop-filter: blur(12px);
-    }
+        .card:hover {
+            border-color: var(--purple-glow);
+            box-shadow: 0 0 25px rgba(157, 78, 221, 0.25);
+            transform: translateY(-2px);
+        }
 
-    .section-title {
-      font-size: 1.6rem;
-      font-weight: 700;
-      margin-bottom: 28px;
-      display: flex;
-      align-items: center;
-      gap: 14px;
-      border-bottom: 1px solid var(--border-soft);
-      padding-bottom: 14px;
-    }
+        .card-header {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 1rem;
+        }
 
-    .section-title span {
-      color: var(--neon-purple);
-    }
+        .card i {
+            font-size: 1.5rem;
+            color: var(--neon-magenta);
+            text-shadow: 0 0 10px rgba(255, 0, 127, 0.3);
+        }
 
-    /* Workspace Features Grid */
-    .features-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 24px;
-    }
+        .card h3 {
+            font-size: 1.15rem;
+            color: #fff;
+        }
 
-    .feature-card {
-      background: rgba(3, 1, 7, 0.45);
-      border: 1px solid rgba(74, 41, 147, 0.3);
-      border-radius: 12px;
-      padding: 28px;
-      transition: border-color 0.2s ease;
-    }
+        .card ul {
+            list-style: none;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-top: auto;
+            padding-top: 1rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+        }
 
-    .feature-card:hover {
-      border-color: var(--border-glow);
-    }
+        .card li {
+            margin-bottom: 0.4rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
 
-    .feature-icon {
-      font-size: 22px;
-      color: var(--neon-cyan);
-      margin-bottom: 16px;
-    }
+        .card li::before {
+            content: "•";
+            color: var(--purple-glow);
+        }
 
-    .feature-card h4 {
-      font-size: 14.5px;
-      margin-bottom: 10px;
-      font-weight: 600;
-    }
+        /* Interactive Processing Pipeline Map */
+        .pipeline-container {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 6px;
+            padding: 2.5rem;
+        }
 
-    .feature-card p {
-      font-size: 12.5px;
-      color: var(--text-muted);
-    }
+        .pipeline {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-bottom: 2rem;
+        }
 
-    /* Mock WebUI Panel */
-    .webui-window {
-      background: #090514;
-      border: 1px solid var(--border-glow);
-      border-radius: 12px;
-      overflow: hidden;
-      box-shadow: 0 20px 40px rgba(0,0,0,0.5);
-    }
+        .pipe-step {
+            background: rgba(255,255,255,0.02);
+            padding: 1rem;
+            border-radius: 4px;
+            border: 1px solid rgba(255,255,255,0.05);
+            font-weight: 700;
+            cursor: pointer;
+            flex: 1;
+            text-align: center;
+            min-width: 110px;
+            transition: all 0.3s ease;
+            font-size: 0.9rem;
+        }
 
-    .webui-header {
-      background: rgba(182, 147, 243, 0.05);
-      padding: 12px 20px;
-      border-bottom: 1px solid var(--border-soft);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
+        .pipe-step.active, .pipe-step:hover {
+            border-color: var(--neon-magenta);
+            color: #fff;
+            box-shadow: 0 0 20px rgba(255, 0, 127, 0.35);
+            background: rgba(255, 0, 127, 0.12);
+        }
 
-    .webui-dots {
-      display: flex;
-      gap: 8px;
-    }
+        .pipe-arrow {
+            color: var(--purple-glow);
+            font-weight: bold;
+        }
 
-    .webui-dots span {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-    }
-    .webui-dots span:nth-child(1) { background: #ef4444; }
-    .webui-dots span:nth-child(2) { background: #f59e0b; }
-    .webui-dots span:nth-child(3) { background: #10b981; }
+        .pipeline-display {
+            background: rgba(0, 0, 0, 0.4);
+            border-left: 3px solid var(--neon-magenta);
+            padding: 1.5rem;
+            border-radius: 0 4px 4px 0;
+            min-height: 110px;
+        }
 
-    .webui-url {
-      background: rgba(0,0,0,0.4);
-      border: 1px solid var(--border-soft);
-      padding: 4px 30px;
-      border-radius: 6px;
-      font-size: 11px;
-      color: var(--text-muted);
-      width: 40%;
-      text-align: center;
-    }
+        .pipeline-display h4 {
+            color: var(--neon-magenta);
+            margin-bottom: 0.5rem;
+            font-size: 1.1rem;
+        }
 
-    .webui-body {
-      display: grid;
-      grid-template-columns: 260px 1fr;
-      min-height: 380px;
-    }
+        /* System Terminals and Guides */
+        .terminal-window {
+            background: var(--terminal-dark);
+            border: 1px solid var(--glass-border);
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 2.5rem;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
 
-    .webui-sidebar {
-      background: rgba(3, 1, 7, 0.3);
-      border-right: 1px solid var(--border-soft);
-      padding: 20px;
-      font-size: 12px;
-    }
+        .terminal-header {
+            background: rgba(255,255,255,0.03);
+            padding: 0.8rem 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
 
-    .sidebar-item {
-      padding: 10px 12px;
-      border-radius: 6px;
-      margin-bottom: 6px;
-      color: var(--text-muted);
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
+        .dot { width: 12px; height: 12px; border-radius: 50%; }
+        .dot-r { background: #ff5f56; }
+        .dot-y { background: #ffbd2e; }
+        .dot-g { background: #27c93f; }
+        
+        .terminal-title {
+            margin-left: 1rem;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
 
-    .sidebar-item.active {
-      background: rgba(182, 147, 243, 0.1);
-      color: var(--neon-purple);
-      border-left: 3px solid var(--neon-purple);
-    }
+        .btn-copy {
+            margin-left: auto;
+            background: transparent;
+            border: 1px solid var(--glass-border);
+            color: var(--text-muted);
+            padding: 0.3rem 0.9rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 0.75rem;
+            transition: all 0.2s;
+        }
 
-    .webui-main {
-      padding: 24px;
-      background: #0b0619;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-    }
+        .btn-copy:hover {
+            border-color: var(--neon-magenta);
+            color: #fff;
+        }
 
-    .chat-bubble {
-      background: var(--bg-card);
-      border: 1px solid var(--border-soft);
-      padding: 16px;
-      border-radius: 8px;
-      font-size: 13px;
-      margin-bottom: 16px;
-      max-width: 85%;
-    }
+        .terminal-body {
+            padding: 1.5rem;
+            overflow-x: auto;
+        }
 
-    .chat-bubble.assistant {
-      border-left: 3px solid var(--neon-cyan);
-      align-self: flex-start;
-    }
+        pre {
+            color: #48cae4;
+            white-space: pre-wrap;
+            font-size: 0.9rem;
+        }
 
-    .webui-input-container {
-      background: rgba(0,0,0,0.3);
-      border: 1px solid var(--border-glow);
-      padding: 14px;
-      border-radius: 8px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-size: 13px;
-      color: var(--text-muted);
-    }
+        .comment { color: #6c757d; }
+        .command { color: var(--text-main); }
 
-    /* Guides & Formatting */
-    ul {
-      padding-left: 20px;
-    }
+        /* Workspace Playground Interactive Matrix */
+        .playground-grid {
+            display: grid;
+            grid-template-columns: 1fr 1.2fr;
+            gap: 2.5rem;
+        }
 
-    li {
-      margin-bottom: 14px;
-      font-size: 14px;
-    }
+        .prompt-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            max-height: 420px;
+            overflow-y: auto;
+            padding-right: 5px;
+        }
 
-    li strong {
-      color: var(--neon-purple);
-    }
+        /* Styling scrollbar for prompt items */
+        .prompt-list::-webkit-scrollbar { width: 4px; }
+        .prompt-list::-webkit-scrollbar-thumb { background: var(--glass-border); border-radius: 4px; }
 
-    code {
-      font-family: var(--mono);
-      background: rgba(182, 147, 243, 0.12);
-      padding: 2px 6px;
-      border-radius: 4px;
-      font-size: 12px;
-      color: var(--neon-purple);
-    }
+        .prompt-opt {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            padding: 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 0.85rem;
+        }
 
-    /* Installation Terminal Code */
-    .terminal-box {
-      background: var(--terminal-black);
-      border: 1px solid var(--border-glow);
-      border-radius: 8px;
-      padding: 18px;
-      font-size: 13px;
-      overflow-x: auto;
-      margin-top: 12px;
-    }
+        .prompt-opt:hover {
+            border-color: var(--purple-glow);
+            background: rgba(157, 78, 221, 0.1);
+            transform: translateX(3px);
+        }
 
-    .line-comment { color: var(--text-muted); font-style: italic; }
-    .line-cmd { color: var(--neon-cyan); }
-    .line-success { color: #4ade80; }
+        .prompt-opt i {
+            color: var(--neon-magenta);
+            font-size: 0.8rem;
+        }
 
-    .step-block {
-      margin-bottom: 28px;
-    }
+        .playground-terminal {
+            height: 420px;
+            display: flex;
+            flex-direction: column;
+        }
 
-    .step-block h4 {
-      font-size: 14px;
-      margin-bottom: 6px;
-      color: var(--text-main);
-    }
+        .playground-terminal .terminal-body {
+            flex: 1;
+            font-size: 0.85rem;
+            color: #a29bfe;
+        }
 
-    footer {
-      text-align: center;
-      padding: 44px 0;
-      color: var(--text-muted);
-      font-size: 11px;
-      border-top: 1px solid var(--border-soft);
-    }
+        /* Split Footing */
+        .split {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4rem;
+        }
 
-    @media (max-width: 900px) {
-      .webui-body { grid-template-columns: 1fr; }
-      .webui-sidebar { display: none; }
-    }
+        @media (max-width: 900px) {
+            .playground-grid { grid-template-columns: 1fr; }
+            .split { grid-template-columns: 1fr; gap: 3rem; }
+            .pipe-arrow { display: none; }
+            .pipeline { flex-direction: column; }
+            .pipe-step { width: 100%; }
+            .hero h1 { font-size: 3.8rem; }
+        }
 
-    @media (max-width: 768px) {
-      .hero h2 { font-size: 2.4rem; }
-      .section-box { padding: 26px; }
-      .nav-links a:not(.btn-github) { display: none; }
-    }
-  </style>
+        .split ul { list-style: none; }
+        .split li { margin-bottom: 1rem; display: flex; align-items: flex-start; gap: 12px; font-size: 0.95rem;}
+        .split li i { color: var(--neon-magenta); margin-top: 5px; }
+
+        footer {
+            text-align: center;
+            padding: 5rem 2rem;
+            border-top: 1px solid var(--glass-border);
+            color: var(--text-muted);
+            font-size: 0.85rem;
+        }
+    </style>
 </head>
 <body>
 
-  <div class="space-bg"></div>
-  <div class="stars"></div>
+    <nav>
+        <div class="logo">⬡ <span>litelaw</span></div>
+        <ul>
+            <li><a href="#features">Features</a></li>
+            <li><a href="#pipeline-section">Multi-Agent</a></li>
+            <li><a href="#setup">Installation</a></li>
+            <li><a href="#playground">Playground</a></li>
+        </ul>
+    </nav>
 
-  <header>
-    <div class="container nav-bar">
-      <a href="#" class="brand">
-        <div>⬡</div>
-        <div>lite<span>law</span></div>
-      </a>
-      <nav class="nav-links">
-        <a href="#workspace">Workspace Engine</a>
-        <a href="#interface">WebUI Interface</a>
-        <a href="#prerequisites">Prerequisites</a>
-        <a href="#installation">Setup Guide</a>
-        <a href="https://github.com/excellogalihs/litelaw" class="btn-github" target="_blank">
-          <span>󰊤</span> View on GitHub
+    <header class="hero">
+        <h1>litelaw</h1>
+        <p>A lightweight local AI workspace for autonomous computer automation. Built around Ollama with document editing, persistent memory execution loops, and structural privacy sovereignty.</p>
+        <a href="https://github.com/excellogalihs/litelaw" target="_blank" class="btn-github">
+            <i class="fab fa-github"></i> View on GitHub
         </a>
-      </nav>
-    </div>
-  </header>
+    </header>
 
-  <section class="container hero">
-    <div class="badge">🛸 UNIFIED WEB INTELLIGENCE OPERATING MATRIX</div>
-    <h2>The Next-Gen Local <span>AI Workspace</span> Platform</h2>
-    <p>
-      An advanced, dark-mode graphical ecosystem tracking multi-session chat states, persistent scratchpad document structures, calendar tasks, and systemic data operations from one intuitive, beautifully designed Web UI.
-    </p>
-    <div class="hero-ctas">
-      <a href="#installation" class="btn-primary">Launch Dashboard</a>
-      <a href="https://github.com/excellogalihs/litelaw" class="btn-github" target="_blank" style="padding: 14px 28px;">
-        <span>󰊤</span> Source Code
-      </a>
-    </div>
-  </section>
+    <main class="container">
 
-  <main class="container">
+        <section id="features">
+            <h2>System Core Matrix</h2>
+            <p class="section-desc">Explore the built-in system modules handling everything from raw computer diagnostics to complex formatting conversion workflows natively.</p>
+            
+            <div class="category-title">Core Intelligence & Planning</div>
+            <div class="grid">
+                <div class="card">
+                    <div class="card-header"><i class="fas fa-robot"></i><h3>Autonomous AI Agent</h3></div>
+                    <p>Structured reasoning loop executing terminal automation commands safely with localized system rules.</p>
+                    <ul>
+                        <li>Autonomous terminal loop</li>
+                        <li>Context-aware processing</li>
+                        <li>Automatic context trimming</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <div class="card-header"><i class="fas fa-users"></i><h3>Multi-Agent Mode</h3></div>
+                    <p>Funnels complicated requests to dedicated specialized worker models coordinating behind visual real-time task tracks.</p>
+                    <ul>
+                        <li>Visual task tracking queues</li>
+                        <li>Shared global loop context</li>
+                        <li>Reviewer block verification</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <div class="card-header"><i class="fas fa-brain"></i><h3>Persistent Memory</h3></div>
+                    <p>Long-term knowledge storage layer extending beyond reboots to enforce rules across localized tasks.</p>
+                    <ul>
+                        <li>Maintains chosen coding styles</li>
+                        <li>Saves global project contexts</li>
+                        <li>Locks permanent behavior guidelines</li>
+                    </ul>
+                </div>
+            </div>
 
-    <section id="workspace" class="section-box">
-      <div class="section-title"><span>󰨞</span> Integrated Workspace Platform</div>
-      <div class="features-grid">
-        <div class="feature-card">
-          <div class="feature-icon">󰗀</div>
-          <h4>Live Document Scratchpads</h4>
-          <p>Built-in collaborative text layers and workspaces hosting temporary data files (e.g., <code>Scratchpad.txt</code>) directly accessible beside the active AI assistant pane.</p>
-        </div>
-        <div class="feature-card">
-          <div class="feature-icon">󰋚</div>
-          <h4>Persistent Bias & Memories</h4>
-          <p>Maintains background vectors to store specialized operational guidelines, programming structures, and favorite system preferences across browser reloads.</p>
-        </div>
-        <div class="feature-card">
-          <div class="feature-icon">󰖟</div>
-          <h4>Integrated `ddgs` Live Search</h4>
-          <p>Utilizes ultra-lean synchronous web parsing channels compiled right out of the native <code>ddgs</code> framework to supplement model insight grids in real-time.</p>
-        </div>
-        <div class="feature-card">
-          <div class="feature-icon">󰉉</div>
-          <h4>Advanced File Converters</h4>
-          <p>Universal media backend pipeline converting local PDFs, transforming standard DOCX parameters, and adjusting canvas attributes of project graphic resources on the fly.</p>
-        </div>
-      </div>
-    </section>
+            <div class="category-title">Workspace Environment Modules</div>
+            <div class="grid">
+                <div class="card">
+                    <div class="card-header"><i class="fas fa-comments"></i><h3>Chat Workspace</h3></div>
+                    <p>Clean conversational environment built explicitly around instant persistent historical query tracking maps.</p>
+                    <ul>
+                        <li>Multiple localized threads</li>
+                        <li>Automated script title tags</li>
+                        <li>Minimalist terminal visual interface</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <div class="card-header"><i class="fas fa-file-alt"></i><h3>Document Editor</h3></div>
+                    <p>Integrated staging ground providing instant-saving document scratchpads to house complex prompt workflows.</p>
+                    <ul>
+                        <li>Instant-save persistent arrays</li>
+                        <li>Flexible notes and prompt storage</li>
+                        <li>Multi-document track selection</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <div class="card-header"><i class="fas fa-globe"></i><h3>Web Utilities</h3></div>
+                    <p>Integrated automated scraping pipelines supporting rapid search mechanics and background router bypassing.</p>
+                    <ul>
+                        <li>Live web query search routing</li>
+                        <li>Platform search shortcuts</li>
+                        <li>Automated URL monitoring</li>
+                    </ul>
+                </div>
+            </div>
 
-    <section id="interface" class="section-box">
-      <div class="section-title"><span>󰖟</span> Modern Web Workspace Interface</div>
-      <p style="font-size: 13.5px; color: var(--text-muted); margin-bottom: 24px;">
-        Escape standard lines of terminal prompts. litelaw renders a fully localized rich environment equipped with system alerts, file management systems, and a dark visual terminal workspace context.
-      </p>
-      
-      <div class="webui-window">
-        <div class="webui-header">
-          <div class="webui-dots"><span></span><span></span><span></span></div>
-          <div class="webui-url">http://localhost:5000</div>
-          <div style="font-size: 11px; color: var(--neon-purple);">litelaw v1.0.0</div>
-        </div>
-        <div class="webui-body">
-          <div class="webui-sidebar">
-            <div class="sidebar-item active"><span>󰭦</span> Chat Conversations</div>
-            <div class="sidebar-item"><span>󰨞</span> Document Workspace (Scratchpad)</div>
-            <div class="sidebar-item"><span>󰃭</span> Calendar & Notification Alarms</div>
-            <div class="sidebar-item"><span>󰋚</span> Persistent Memory Store</div>
-          </div>
-          <div class="webui-main">
+            <div class="category-title">Local Utilities & Execution</div>
+            <div class="grid">
+                <div class="card">
+                    <div class="card-header"><i class="fas fa-exchange-alt"></i><h3>File Converter</h3></div>
+                    <p>Transform sensitive local file systems directly without exposing data footprints to cloud servers.</p>
+                    <ul>
+                        <li>PDF ↔ TXT ↔ DOCX workflows</li>
+                        <li>PNG ↔ JPEG format conversions</li>
+                        <li>Direct document-to-PDF compilation</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <div class="card-header"><i class="fas fa-terminal"></i><h3>Computer Automation</h3></div>
+                    <p>Execute scripts and control your operating environment seamlessly through clear natural language prompts.</p>
+                    <ul>
+                        <li>Complete Git pipeline control</li>
+                        <li>Diagnostics and environment logs</li>
+                        <li>Python scripts execution tracking</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <div class="card-header"><i class="fas fa-calendar-alt"></i><h3>Calendar & Calculator</h3></div>
+                    <p>Fast integrated productivity features keeping scheduling parameters and math checks embedded in the same window.</p>
+                    <ul>
+                        <li>Persistent reminder alerts</li>
+                        <li>Keyboard-optimized arithmetic</li>
+                        <li>Daily task dashboard checks</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <section id="pipeline-section">
+            <h2>Multi-Agent Logic System</h2>
+            <p class="section-desc">Click each layer below to see how specialized agents breakdown and solve instructions.</p>
+            <div class="pipeline-container">
+                <div class="pipeline">
+                    <div class="pipe-step active" data-agent="planner">Planner</div>
+                    <div class="pipe-arrow">→</div>
+                    <div class="pipe-step" data-agent="researcher">Researcher</div>
+                    <div class="pipe-arrow">→</div>
+                    <div class="pipe-step" data-agent="coder">Coder</div>
+                    <div class="pipe-arrow">→</div>
+                    <div class="pipe-step" data-agent="executor">Executor</div>
+                    <div class="pipe-arrow">→</div>
+                    <div class="pipe-step" data-agent="reviewer">Reviewer</div>
+                </div>
+                <div class="pipeline-display">
+                    <h4 id="agent-title">Planner Agent</h4>
+                    <p id="agent-desc">Analyzes incoming objectives, splits them into functional steps, and formats clean visual task queues.</p>
+                </div>
+            </div>
+        </section>
+
+        <section id="setup">
+            <h2>System Installation Guide</h2>
+            <p class="section-desc">Deploy your private, SaaS-free local workspace environment onto your physical hardware within minutes.</p>
+            
+            <p style="margin-bottom: 1rem; font-weight: bold; color: var(--purple-glow);">1. Environment Prerequisites</p>
+            <div class="terminal-window">
+                <div class="terminal-header">
+                    <div class="dot dot-r"></div><div class="dot dot-y"></div><div class="dot dot-g"></div>
+                    <div class="terminal-title">requirements.txt</div>
+                </div>
+                <div class="terminal-body">
+                    <pre>• Python 3.10 or higher
+• Ollama Engine (Installed locally)
+• Git (Optional for repository fetching)
+• Recommended Foundation Architecture: <span class="command">gemma3:1b</span></pre>
+                </div>
+            </div>
+
+            <p style="margin-bottom: 1rem; font-weight: bold; color: var(--purple-glow);">2. Shell Implementation Steps</p>
+            <div class="terminal-window">
+                <div class="terminal-header">
+                    <div class="dot dot-r"></div><div class="dot dot-y"></div><div class="dot dot-g"></div>
+                    <div class="terminal-title">terminal — bash shell</div>
+                    <button class="btn-copy" onclick="copyInstallScript()">Copy Sequence</button>
+                </div>
+                <div class="terminal-body">
+                    <pre id="install-script"><span class="comment"># Clone the core architecture</span>
+git clone https://github.com/excellogalihs/litelaw.git
+cd litelaw
+
+<span class="comment"># Provision local operational dependencies</span>
+pip install flask pillow python-docx pypdf ddgs
+
+<span class="comment"># Initialize and wake Ollama local server runtime</span>
+ollama serve
+
+<span class="comment"># Pull target model architecture matrix</span>
+ollama pull gemma3:1b
+
+<span class="comment"># Fire up your workspace environment</span>
+python app.py</pre>
+                </div>
+            </div>
+            <p style="text-align: center; font-size: 0.9rem; color: var(--text-muted);">
+                Target Local Host: <span style="color: var(--neon-magenta)">http://127.0.0.1:5000</span>
+            </p>
+        </section>
+
+        <section id="playground">
+            <h2>Workspace Prompt Simulator</h2>
+            <p class="section-desc">Select any of the official usage prompt vectors from the repository to simulate local background actions.</p>
+            <div class="playground-grid">
+                <div class="prompt-list">
+                    <div class="prompt-opt" onclick="simulateTerminal('Create a Python Flask app.', 'Parsing task sequence...\n[WRITING] app.py generated.\n[ROUTING] Binding routes to local systems.\nTask finalized successfully.')">
+                        <span>Create a Python Flask app.</span><i class="fas fa-terminal"></i>
+                    </div>
+                    <div class="prompt-opt" onclick="simulateTerminal('Find every ISO in Downloads.', 'Scanning localized drive arrays...\n[FOUND] ubuntu-24.04-desktop-amd64.iso\n[FOUND] fedora-workstation-44.iso\nOutput mapped.')">
+                        <span>Find every ISO in Downloads.</span><i class="fas fa-terminal"></i>
+                    </div>
+                    <div class="prompt-opt" onclick="simulateTerminal('Search the web for the latest Linux kernel.', 'Running headless search matrix via ddgs...\n[FETCHED] Stable mainline kernel build isolated.\nUpdating workspace notes block.')">
+                        <span>Search the web for the latest Linux kernel.</span><i class="fas fa-terminal"></i>
+                    </div>
+                    <div class="prompt-opt" onclick="simulateTerminal('Convert this PDF into a DOCX.', 'Analyzing structural PDF text vectors via pypdf...\n[PROCESSING] Formatting font and section maps...\n[SUCCESS] Document compiled to target output folder.')">
+                        <span>Convert this PDF into a DOCX.</span><i class="fas fa-terminal"></i>
+                    </div>
+                    <div class="prompt-opt" onclick="simulateTerminal('Create a new document called notes.txt.', 'Opening workspace storage variables...\n[SAVING] Instantly synchronized notes.txt inside tracking array.\nEditor updated.')">
+                        <span>Create a new document called notes.txt.</span><i class="fas fa-terminal"></i>
+                    </div>
+                    <div class="prompt-opt" onclick="simulateTerminal('Open YouTube and search for lo-fi music.', 'Booting local background browser automated thread...\n[LAUNCHING] Targeting platform search hooks.\nPlaying track sequence.')">
+                        <span>Open YouTube and search for lo-fi music.</span><i class="fas fa-terminal"></i>
+                    </div>
+                </div>
+
+                <div class="terminal-window playground-terminal">
+                    <div class="terminal-header">
+                        <div class="dot dot-r"></div><div class="dot dot-y"></div><div class="dot dot-g"></div>
+                        <div class="terminal-title">litelaw_execution_stream</div>
+                    </div>
+                    <div class="terminal-body" id="sim-body">
+                        <span class="comment">> Kernel active. Select an evaluation script sequence from the list...</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="split">
             <div>
-              <div class="chat-bubble assistant">
-                <strong>litelaw Workspace Agent:</strong><br>
-                I've verified the project states, parsed your local structural document elements, and synchronized <code>litelaw_store.json</code> safely. What task shall we resolve next?
-              </div>
+                <h2>Design Philosophy</h2>
+                <ul>
+                    <li><i class="fas fa-server"></i> <strong>Local-First:</strong> Zero external cloud pipelines. Sovereignty assured.</li>
+                    <li><i class="fas fa-feather"></i> <strong>Lightweight:</strong> Low memory usage, fast response cycles.</li>
+                    <li><i class="fas fa-search"></i> <strong>Transparent:</strong> Open-source, clear execution sequences.</li>
+                    <li><i class="fas fa-bolt"></i> <strong>Fast:</strong> Run direct actions on local machine hardware.</li>
+                </ul>
             </div>
-            <div class="webui-input-container">
-              <div>Type a request to write code, fetch live web search data via ddgs, or process files...</div>
-              <div style="color: var(--neon-magenta);">󰞘</div>
+            <div>
+                <h2>Development Roadmap</h2>
+                <ul>
+                    <li><i class="far fa-circle"></i> Deep Research advanced query mode</li>
+                    <li><i class="far fa-circle"></i> Local Vector Memory Layer (RAG)</li>
+                    <li><i class="far fa-circle"></i> Model Management dashboard setup</li>
+                    <li><i class="far fa-circle"></i> MCP integration support mechanisms</li>
+                    <li><i class="far fa-circle"></i> Voice UI interactions & Image updates</li>
+                </ul>
             </div>
-          </div>
-        </div>
-      </div>
-    </section>
+        </section>
 
-    <section id="prerequisites" class="section-box">
-      <div class="section-title"><span>󰜢</span> System Prerequisites</div>
-      <p style="margin-bottom: 20px; font-size: 13.5px; color: var(--text-muted);">
-        Prepare your local physical workstation infrastructure with the core toolsets needed to support the workspace framework:
-      </p>
-      <ul>
-        <li><strong>Python Runtime Environment:</strong> Python <code>3.8+</code> configured with an integrated system <code>pip</code> module config tracker.</li>
-        <li><strong>Local Model Processing Layer:</strong> A standalone <code>Ollama</code> server application running locally and exposed at <code>http://localhost:11434</code>.</li>
-        <li><strong>LLM Weight Map:</strong> Download and host the lightweight, hyper-responsive <code>gemma3:1b</code> footprint signature locally.</li>
-        <li><strong>Universal Browser Compatibility:</strong> Perfectly optimized for Chrome, Firefox, Edge, Safari, and all WebKit/Chromium privacy engines.</li>
-      </ul>
-    </section>
+    </main>
 
-    <section id="installation" class="section-box">
-      <div class="section-title"><span>󰏔</span> Provisioning & Server Deployment</div>
-      
-      <div class="step-block">
-        <h4>1. Clone the Central Repository</h4>
-        <div class="terminal-box">
-          <span class="line-cmd">git clone https://github.com/excellogalihs/litelaw.git</span><br>
-          <span class="line-cmd">cd litelaw</span>
-        </div>
-      </div>
+    <footer>
+        <p>⬡ litelaw is published openly under the terms of the MIT License.</p>
+        <p style="margin-top: 0.5rem; font-size: 0.75rem; color: rgba(255,255,255,0.1)">No subscriptions. No remote clouds. Just absolute machine focus.</p>
+    </footer>
 
-      <div class="step-block">
-        <h4>2. Install Core Packages & Drivers</h4>
-        <div class="terminal-box">
-          <span class="line-comment"># Installs the modern Flask server components, text document converters, and ddgs module tools</span><br>
-          <span class="line-cmd">pip install flask pypdf python-docx pillow ddgs</span>
-        </div>
-      </div>
+    <script>
+        // Multi-Agent Narrative Management
+        const agentData = {
+            planner: {
+                title: "Planner Agent",
+                desc: "Analyzes incoming objectives, splits them into functional steps, and formats clean visual task queues."
+            },
+            researcher: {
+                title: "Researcher Agent",
+                desc: "Queries internal text layers and initiates background web scraping queries to assemble runtime parameters."
+            },
+            coder: {
+                title: "Coder Agent",
+                desc: "Generates systemic automation scripts, cross-checks execution structures, and targets codebase transformations."
+            },
+            executor: {
+                title: "Executor Agent",
+                desc: "Monitors operational system calls, runs format alterations, and initiates localized environment operations."
+            },
+            reviewer: {
+                title: "Reviewer Agent",
+                desc: "Inspects background shell loop data codes, ensures consistency criteria, and verifies the task execution outcome."
+            }
+        };
 
-      <div class="step-block">
-        <h4>3. Stage LLM Models Locally</h4>
-        <div class="terminal-box">
-          <span class="line-comment"># Fetch the target AI language parameters inside your local Ollama daemon</span><br>
-          <span class="line-cmd">ollama pull gemma3:1b</span>
-        </div>
-      </div>
+        document.querySelectorAll('.pipe-step').forEach(step => {
+            step.addEventListener('click', function() {
+                document.querySelectorAll('.pipe-step').forEach(s => s.classList.remove('active'));
+                this.classList.add('active');
+                
+                const agent = this.getAttribute('data-agent');
+                document.getElementById('agent-title').innerText = agentData[agent].title;
+                document.getElementById('agent-desc').innerText = agentData[agent].desc;
+            });
+        });
 
-      <div class="step-block">
-        <h4>4. Boot the Modern Workspace Engine</h4>
-        <p style="font-size: 12.5px; color: var(--text-muted); margin: 8px 0;">Execute the central deployment file to kickstart the graphical dashboard environment:</p>
-        <div class="terminal-box">
-          <span class="line-cmd">python3 app.py</span><br>
-          <span class="line-success">====================================================</span><br>
-          <span class="line-success"> ⬡  litelaw agent web environment runtime dashboard</span><br>
-          <span class="line-success"> Local Access Interface address: http://localhost:5000</span><br>
-          <span class="line-success">====================================================</span>
-        </div>
-        <p style="font-size: 12.5px; color: var(--text-muted); margin-top: 12px;">
-          Once active, navigate your browser to <code>http://localhost:5000</code> to view and manage your workspace ecosystem.
-        </p>
-      </div>
-    </section>
+        // Script Automation Copy System
+        function copyInstallScript() {
+            const codeText = document.getElementById('install-script').innerText;
+            navigator.clipboard.writeText(codeText).then(() => {
+                const copyBtn = document.querySelector('.btn-copy');
+                copyBtn.innerText = "Sequence Logged!";
+                copyBtn.style.borderColor = "#27c93f";
+                setTimeout(() => {
+                    copyBtn.innerText = "Copy Sequence";
+                    copyBtn.style.borderColor = "var(--glass-border)";
+                }, 2000);
+            });
+        }
 
-  </main>
-
-  <footer>
-    <div class="container">
-      &copy; 2026 litelaw Ecosystem • Developed with Outer Space Purple Syntax Templates & JetBrains Mono Nerd Fonts.
-    </div>
-  </footer>
-
+        // Live Simulated Shell Loop
+        function simulateTerminal(promptText, outputText) {
+            const terminal = document.getElementById('sim-body');
+            terminal.innerHTML = `<span style="color:#fff;">$ litelaw --process "${promptText}"</span>\n\n<span class="comment">[System matching multi-agent architecture parameters...]</span>\n`;
+            
+            setTimeout(() => {
+                terminal.innerHTML += `<span style="color:var(--neon-magenta);">${outputText}</span>\n\n<span style="color:#27c93f;">$ _</span>`;
+            }, 850);
+        }
+    </script>
 </body>
 </html>
