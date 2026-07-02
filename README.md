@@ -261,7 +261,6 @@ ollama pull gemma3:1b
 ## 5. Launch litelaw
 
 ```bash
-cd /path/to/litelaw
 python app.py
 ```
 
