@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>litelaw | Local AI Workspace</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpolygon points='50,3 93,26 93,74 50,97 7,74 7,26' fill='none' stroke='white' stroke-width='9'/%3E%3C/svg%3E">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
@@ -14,8 +15,8 @@
             --bg-deep: #0a0512;
             --bg-space: #12072B;
             --purple-glow: #9d4edd;
-            --neon-magenta: #ff007f;
-            --neon-purple: #b5179e;
+            --neon-magenta: #a855f7;
+            --neon-purple: #7c3aed;
             --text-main: #f3eeff;
             --text-muted: #a393bf;
             --glass-bg: rgba(25, 12, 51, 0.45);
@@ -49,7 +50,7 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background: radial-gradient(circle at 15% 25%, rgba(255, 0, 127, 0.06) 0%, transparent 45%),
+            background: radial-gradient(circle at 15% 25%, rgba(168, 85, 247, 0.06) 0%, transparent 45%),
                         radial-gradient(circle at 85% 75%, rgba(157, 78, 221, 0.09) 0%, transparent 45%);
             z-index: -1;
             pointer-events: none;
@@ -143,13 +144,13 @@
             font-weight: 500;
             letter-spacing: 1px;
             transition: all 0.3s ease;
-            box-shadow: 0 0 25px rgba(255, 0, 127, 0.4);
+            box-shadow: 0 0 25px rgba(168, 85, 247, 0.4);
             border: 1px solid rgba(255, 255, 255, 0.2);
         }
 
         .btn-github:hover {
             transform: translateY(-3px);
-            box-shadow: 0 0 40px rgba(255, 0, 127, 0.7);
+            box-shadow: 0 0 40px rgba(168, 85, 247, 0.7);
         }
 
         /* Content Base Wrapper */
@@ -229,7 +230,7 @@
         .card i {
             font-size: 1.5rem;
             color: var(--neon-magenta);
-            text-shadow: 0 0 10px rgba(255, 0, 127, 0.3);
+            text-shadow: 0 0 10px rgba(168, 85, 247, 0.3);
         }
 
         .card h3 {
@@ -292,8 +293,8 @@
         .pipe-step.active, .pipe-step:hover {
             border-color: var(--neon-magenta);
             color: #fff;
-            box-shadow: 0 0 20px rgba(255, 0, 127, 0.35);
-            background: rgba(255, 0, 127, 0.12);
+            box-shadow: 0 0 20px rgba(168, 85, 247, 0.35);
+            background: rgba(168, 85, 247, 0.12);
         }
 
         .pipe-arrow {
@@ -468,7 +469,7 @@
         <div class="logo">⬡ <span>litelaw</span></div>
         <ul>
             <li><a href="#features">Features</a></li>
-            <li><a href="#pipeline-section">Multi-Agent</a></li>
+            <li><a href="#pipeline-section">Agent Loop</a></li>
             <li><a href="#setup">Installation</a></li>
             <li><a href="#playground">Playground</a></li>
         </ul>
@@ -491,21 +492,21 @@
             <div class="category-title">Core Intelligence & Planning</div>
             <div class="grid">
                 <div class="card">
-                    <div class="card-header"><i class="fas fa-robot"></i><h3>Autonomous AI Agent</h3></div>
-                    <p>Structured reasoning loop executing terminal automation commands safely with localized system rules.</p>
+                    <div class="card-header"><i class="fas fa-robot"></i><h3>Autonomous Agent Loop</h3></div>
+                    <p>THOUGHT → ACTION → COMMAND reasoning loop that executes terminal automation step by step and stops itself once the task is done.</p>
                     <ul>
-                        <li>Autonomous terminal loop</li>
-                        <li>Context-aware processing</li>
-                        <li>Automatic context trimming</li>
+                        <li>Structured THOUGHT/COMMAND/ANSWER format</li>
+                        <li>Repeat & infinite-loop detection</li>
+                        <li>Automatic context window trimming</li>
                     </ul>
                 </div>
                 <div class="card">
-                    <div class="card-header"><i class="fas fa-users"></i><h3>Multi-Agent Mode</h3></div>
-                    <p>Funnels complicated requests to dedicated specialized worker models coordinating behind visual real-time task tracks.</p>
+                    <div class="card-header"><i class="fas fa-shield-alt"></i><h3>Guardrails</h3></div>
+                    <p>Lightweight self-correction rules that catch common small-model mistakes before they reach your filesystem.</p>
                     <ul>
-                        <li>Visual task tracking queues</li>
-                        <li>Shared global loop context</li>
-                        <li>Reviewer block verification</li>
+                        <li>Blocks "touch" misuse on write tasks</li>
+                        <li>Strips echoed file content from replies</li>
+                        <li>Forces completion on repeated commands</li>
                     </ul>
                 </div>
                 <div class="card">
@@ -514,7 +515,7 @@
                     <ul>
                         <li>Maintains chosen coding styles</li>
                         <li>Saves global project contexts</li>
-                        <li>Locks permanent behavior guidelines</li>
+                        <li>Injected into every new chat's system prompt</li>
                     </ul>
                 </div>
             </div>
@@ -541,11 +542,11 @@
                 </div>
                 <div class="card">
                     <div class="card-header"><i class="fas fa-globe"></i><h3>Web Utilities</h3></div>
-                    <p>Integrated automated scraping pipelines supporting rapid search mechanics and background router bypassing.</p>
+                    <p>Built-in live search and browser hooks the agent can call directly, no manual copy-pasting URLs.</p>
                     <ul>
-                        <li>Live web query search routing</li>
-                        <li>Platform search shortcuts</li>
-                        <li>Automated URL monitoring</li>
+                        <li>Live DuckDuckGo web search (via ddgs)</li>
+                        <li>Opens links in your default browser</li>
+                        <li>Platform search shortcuts (e.g. YouTube)</li>
                     </ul>
                 </div>
             </div>
@@ -554,11 +555,11 @@
             <div class="grid">
                 <div class="card">
                     <div class="card-header"><i class="fas fa-exchange-alt"></i><h3>File Converter</h3></div>
-                    <p>Transform sensitive local file systems directly without exposing data footprints to cloud servers.</p>
+                    <p>Transform sensitive local files directly without exposing data footprints to cloud servers.</p>
                     <ul>
-                        <li>PDF ↔ TXT ↔ DOCX workflows</li>
+                        <li>PDF → TXT, DOCX → TXT, PDF → DOCX</li>
                         <li>PNG ↔ JPEG format conversions</li>
-                        <li>Direct document-to-PDF compilation</li>
+                        <li>Image → PDF compilation</li>
                     </ul>
                 </div>
                 <div class="card">
@@ -583,23 +584,23 @@
         </section>
 
         <section id="pipeline-section">
-            <h2>Multi-Agent Logic System</h2>
-            <p class="section-desc">Click each layer below to see how specialized agents breakdown and solve instructions.</p>
+            <h2>Agent Loop Logic</h2>
+            <p class="section-desc">Click each stage below to see how a single task moves through litelaw's reasoning loop.</p>
             <div class="pipeline-container">
                 <div class="pipeline">
-                    <div class="pipe-step active" data-agent="planner">Planner</div>
+                    <div class="pipe-step active" data-agent="planner">Thought</div>
                     <div class="pipe-arrow">→</div>
-                    <div class="pipe-step" data-agent="researcher">Researcher</div>
+                    <div class="pipe-step" data-agent="researcher">Command</div>
                     <div class="pipe-arrow">→</div>
-                    <div class="pipe-step" data-agent="coder">Coder</div>
+                    <div class="pipe-step" data-agent="coder">Output</div>
                     <div class="pipe-arrow">→</div>
-                    <div class="pipe-step" data-agent="executor">Executor</div>
+                    <div class="pipe-step" data-agent="executor">Guardrail Check</div>
                     <div class="pipe-arrow">→</div>
-                    <div class="pipe-step" data-agent="reviewer">Reviewer</div>
+                    <div class="pipe-step" data-agent="reviewer">Answer</div>
                 </div>
                 <div class="pipeline-display">
-                    <h4 id="agent-title">Planner Agent</h4>
-                    <p id="agent-desc">Analyzes incoming objectives, splits them into functional steps, and formats clean visual task queues.</p>
+                    <h4 id="agent-title">Thought</h4>
+                    <p id="agent-desc">The model states its brief reasoning for the next step before choosing an action.</p>
                 </div>
             </div>
         </section>
@@ -702,11 +703,11 @@ python app.py</pre>
             <div>
                 <h2>Development Roadmap</h2>
                 <ul>
-                    <li><i class="far fa-circle"></i> Deep Research advanced query mode</li>
+                    <li><i class="far fa-circle"></i> Multi-agent pipeline (Planner/Researcher/Coder/Executor/Reviewer)</li>
+                    <li><i class="far fa-circle"></i> Multi-provider web search fallback</li>
+                    <li><i class="far fa-circle"></i> Destructive-command safety blocklist</li>
                     <li><i class="far fa-circle"></i> Local Vector Memory Layer (RAG)</li>
-                    <li><i class="far fa-circle"></i> Model Management dashboard setup</li>
                     <li><i class="far fa-circle"></i> MCP integration support mechanisms</li>
-                    <li><i class="far fa-circle"></i> Voice UI interactions & Image updates</li>
                 </ul>
             </div>
         </section>
@@ -722,24 +723,24 @@ python app.py</pre>
         // Multi-Agent Narrative Management
         const agentData = {
             planner: {
-                title: "Planner Agent",
-                desc: "Analyzes incoming objectives, splits them into functional steps, and formats clean visual task queues."
+                title: "Thought",
+                desc: "The model states its brief reasoning for the next step before choosing an action."
             },
             researcher: {
-                title: "Researcher Agent",
-                desc: "Queries internal text layers and initiates background web scraping queries to assemble runtime parameters."
+                title: "Command",
+                desc: "If more work is needed, the model emits a single shell command (or built-in doc/search/browser hook) to run next."
             },
             coder: {
-                title: "Coder Agent",
-                desc: "Generates systemic automation scripts, cross-checks execution structures, and targets codebase transformations."
+                title: "Output",
+                desc: "litelaw executes the command locally and feeds the captured stdout/stderr back into the conversation."
             },
             executor: {
-                title: "Executor Agent",
-                desc: "Monitors operational system calls, runs format alterations, and initiates localized environment operations."
+                title: "Guardrail Check",
+                desc: "Repeated commands, 'touch' misuse on write tasks, and echoed file content are caught and corrected automatically."
             },
             reviewer: {
-                title: "Reviewer Agent",
-                desc: "Inspects background shell loop data codes, ensures consistency criteria, and verifies the task execution outcome."
+                title: "Answer",
+                desc: "Once the goal is met, the model responds with ACTION: FINISHED and a short summary of what it did."
             }
         };
 
