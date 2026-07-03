@@ -43,7 +43,6 @@
 - **File converter** — converts between common formats directly in the browser via a Flask backend:
   - PDF → TXT, DOCX → TXT, PDF → DOCX
   - PNG ⇄ JPEG, image → PDF
-  - DOCX → PDF
 
 ---
 
@@ -89,7 +88,7 @@ ANSWER: <summary for the user>
   ```
 - Python packages:
   ```bash
-  pip install flask pypdf python-docx pillow ddgs fpdf2
+  pip install flask pypdf python-docx pillow ddgs
   ```
 
 > litelaw favors pip-only, zero-system-dependency packages where possible so it stays easy to run on modest, CPU-only hardware.
