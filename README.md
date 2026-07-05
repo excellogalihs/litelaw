@@ -93,7 +93,7 @@ No cloud calls, no API keys, no telemetry. Everything runs locally against your 
 4. **Run the web dashboard:**
 
    ```bash
-   python3 app.py
+   python app.py
    ```
 
    You should see:
