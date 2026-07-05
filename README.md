@@ -237,9 +237,7 @@ litelaw/
 │
 ├── app.py
 ├── litelaw.py
-├── litelaw_store.json
-├── README.md
-└── ...
+└── litelaw_store.json
 ```
 
 ---
