@@ -49,7 +49,7 @@ No cloud calls, no API keys, no telemetry. Everything runs locally against your 
 - Built-in calculator widget alongside the agent, document, and calendar panels.
 - Runs as a single-page dashboard — no build step, no frontend framework required.
 
-### 💻 CLI Mode
+### 💻 CLI Mode (I do not recommend using this.)
 - `litelaw.py` can also be run directly as a standalone command-line agent (without the web dashboard), sharing the same memory store, documents, and safety logic as the web app.
 
 ---
