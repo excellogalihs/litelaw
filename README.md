@@ -128,12 +128,7 @@ python3 litelaw.py --doc-read <doc_id>        # Read a document
 
 By default litelaw uses `gemma3:1b` for speed on low-end / CPU-only hardware. To use a different installed Ollama model, either:
 
-- Select it from the model dropdown in the web dashboard, or
-- Set the environment variable before launching:
-
-  ```bash
-  LITEMODEL=llama3.1:8b python3 app.py
-  ```
+- Select it from the model dropdown in the web dashboard.
 
 ---
 
@@ -141,7 +136,6 @@ By default litelaw uses `gemma3:1b` for speed on low-end / CPU-only hardware. To
 
 | Setting | Where | Description |
 |---|---|---|
-| Model | Settings panel / `LITEMODEL` env var | Which local Ollama model to use |
 | Context size | Settings panel | `num_ctx` sent to Ollama; lower it on weaker CPUs |
 | Auto-approve | `litelaw.py` (`AUTO_APPROVE`) | Whether commands run without a manual `(y/n)` confirmation (destructive commands are always blocked regardless) |
 
