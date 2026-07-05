@@ -68,6 +68,7 @@
             top: 0;
             z-index: 100;
             background: rgba(10, 5, 18, 0.75);
+            transition: all 0.3s ease;
         }
 
         .logo {
@@ -209,9 +210,26 @@
             padding: 2rem;
             border-radius: 6px;
             backdrop-filter: blur(6px);
-            transition: all 0.3s ease;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             display: flex;
             flex-direction: column;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.04), transparent);
+            transition: 0.6s ease;
+        }
+
+        .card:hover::before {
+            left: 100%;
         }
 
         .card:hover {
@@ -278,16 +296,18 @@
 
         .pipe-step {
             background: rgba(255,255,255,0.02);
-            padding: 1rem;
+            padding: 1.2rem;
             border-radius: 4px;
             border: 1px solid rgba(255,255,255,0.05);
             font-weight: 700;
             cursor: pointer;
             flex: 1;
             text-align: center;
-            min-width: 110px;
+            min-width: 140px;
             transition: all 0.3s ease;
-            font-size: 0.9rem;
+            font-size: 0.95rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
         }
 
         .pipe-step.active, .pipe-step:hover {
@@ -314,6 +334,51 @@
             color: var(--neon-magenta);
             margin-bottom: 0.5rem;
             font-size: 1.1rem;
+        }
+
+        /* Model Switcher Component */
+        .model-switcher {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            background: rgba(25, 12, 51, 0.2);
+            padding: 0.75rem 1.2rem;
+            border-radius: 6px;
+            border: 1px solid var(--glass-border);
+        }
+
+        .switcher-label {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        .switcher-pills {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        .pill {
+            background: transparent;
+            border: 1px solid var(--glass-border);
+            color: var(--text-muted);
+            padding: 0.3rem 0.8rem;
+            border-radius: 4px;
+            font-family: inherit;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .pill:hover, .pill.active {
+            border-color: var(--neon-magenta);
+            color: #fff;
+            background: rgba(168, 85, 247, 0.15);
+            box-shadow: 0 0 10px rgba(168, 85, 247, 0.2);
         }
 
         /* System Terminals and Guides */
@@ -432,6 +497,33 @@
             flex: 1;
             font-size: 0.85rem;
             color: #a29bfe;
+            overflow-y: auto;
+        }
+
+        /* Floating Back to Top Mechanism */
+        #back-to-top {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            background: linear-gradient(45deg, var(--neon-purple), var(--neon-magenta));
+            color: #fff;
+            border: none;
+            width: 45px;
+            height: 45px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            box-shadow: 0 0 15px rgba(168, 85, 247, 0.4);
+            transition: all 0.3s ease;
+            z-index: 99;
+        }
+
+        #back-to-top:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 0 25px rgba(168, 85, 247, 0.7);
         }
 
         /* Split Footing */
@@ -448,6 +540,19 @@
             .pipeline { flex-direction: column; }
             .pipe-step { width: 100%; }
             .hero h1 { font-size: 3.8rem; }
+        }
+
+        @media (max-width: 600px) {
+            nav {
+                flex-direction: column;
+                gap: 1rem;
+                padding: 1rem;
+            }
+            nav ul {
+                gap: 1.2rem;
+                flex-wrap: wrap;
+                justify-content: center;
+            }
         }
 
         .split ul { list-style: none; }
@@ -469,7 +574,7 @@
         <div class="logo">⬡ <span>litelaw</span></div>
         <ul>
             <li><a href="#features">Features</a></li>
-            <li><a href="#pipeline-section">Agent Loop</a></li>
+            <li><a href="#multi-agent-section">Multi-Agent System</a></li>
             <li><a href="#setup">Installation</a></li>
             <li><a href="#playground">Playground</a></li>
         </ul>
@@ -583,24 +688,20 @@
             </div>
         </section>
 
-        <section id="pipeline-section">
-            <h2>Agent Loop Logic</h2>
-            <p class="section-desc">Click each stage below to see how a single task moves through litelaw's reasoning loop.</p>
+        <section id="multi-agent-section">
+            <h2>Multi-Agent System Orchestration</h2>
+            <p class="section-desc">Click each stage below to discover how distinct asynchronous roles coordinate inside litelaw to fulfill commands.</p>
             <div class="pipeline-container">
                 <div class="pipeline">
-                    <div class="pipe-step active" data-agent="planner">Thought</div>
+                    <div class="pipe-step active" data-agent="planner">Planner</div>
                     <div class="pipe-arrow">→</div>
-                    <div class="pipe-step" data-agent="researcher">Command</div>
+                    <div class="pipe-step" data-agent="executor">Executor</div>
                     <div class="pipe-arrow">→</div>
-                    <div class="pipe-step" data-agent="coder">Output</div>
-                    <div class="pipe-arrow">→</div>
-                    <div class="pipe-step" data-agent="executor">Guardrail Check</div>
-                    <div class="pipe-arrow">→</div>
-                    <div class="pipe-step" data-agent="reviewer">Answer</div>
+                    <div class="pipe-step" data-agent="reviewer">Reviewer</div>
                 </div>
                 <div class="pipeline-display">
-                    <h4 id="agent-title">Thought</h4>
-                    <p id="agent-desc">The model states its brief reasoning for the next step before choosing an action.</p>
+                    <h4 id="agent-title">1. The Planner</h4>
+                    <p id="agent-desc">Deconstructs natural language objectives into executable action trees. Formulates optimal system strategies and context bounds before any execution starts.</p>
                 </div>
             </div>
         </section>
@@ -623,6 +724,15 @@
             </div>
 
             <p style="margin-bottom: 1rem; font-weight: bold; color: var(--purple-glow);">2. Shell Implementation Steps</p>
+            <div class="model-switcher">
+                <span class="switcher-label">Target Architecture Model Matrix:</span>
+                <div class="switcher-pills">
+                    <button class="pill active" onclick="switchModel('gemma3:1b')">gemma3:1b</button>
+                    <button class="pill" onclick="switchModel('gemma3:4b')">gemma3:4b</button>
+                    <button class="pill" onclick="switchModel('llama3.2:1b')">llama3.2:1b</button>
+                    <button class="pill" onclick="switchModel('llama3.2:3b')">llama3.2:3b</button>
+                </div>
+            </div>
             <div class="terminal-window">
                 <div class="terminal-header">
                     <div class="dot dot-r"></div><div class="dot dot-y"></div><div class="dot dot-g"></div>
@@ -641,7 +751,7 @@ pip install flask pillow python-docx pypdf duckduckgo_search
 ollama serve
 
 <span class="comment"># Pull target model architecture matrix</span>
-ollama pull gemma3:1b
+ollama pull <span id="selected-model-cmd" class="command" style="color: var(--neon-magenta); font-weight: bold;">gemma3:1b</span>
 
 <span class="comment"># Fire up your workspace environment</span>
 python app.py</pre>
@@ -713,6 +823,8 @@ python app.py</pre>
 
     </main>
 
+    <button id="back-to-top" title="Go to top"><i class="fas fa-arrow-up"></i></button>
+
     <footer>
         <p>⬡ litelaw is published openly under the terms of the MIT License.</p>
         <p style="margin-top: 0.5rem; font-size: 0.75rem; color: rgba(255,255,255,0.1)">No subscriptions. No remote clouds. Just absolute machine focus.</p>
@@ -722,24 +834,16 @@ python app.py</pre>
         // Multi-Agent Narrative Management
         const agentData = {
             planner: {
-                title: "Thought",
-                desc: "The model states its brief reasoning for the next step before choosing an action."
-            },
-            researcher: {
-                title: "Command",
-                desc: "If more work is needed, the model emits a single shell command (or built-in doc/search/browser hook) to run next."
-            },
-            coder: {
-                title: "Output",
-                desc: "litelaw executes the command locally and feeds the captured stdout/stderr back into the conversation."
+                title: "1. The Planner",
+                desc: "Deconstructs natural language objectives into executable action trees. Formulates optimal system strategies and context bounds before any execution starts."
             },
             executor: {
-                title: "Guardrail Check",
-                desc: "Repeated commands, 'touch' misuse on write tasks, and echoed file content are caught and corrected automatically."
+                title: "2. The Executor",
+                desc: "Safely interfaces with local terminal subsystems, files, or external web search components. Streams live execution logs and catches raw standard outputs."
             },
             reviewer: {
-                title: "Answer",
-                desc: "Once the goal is met, the model responds with ACTION: FINISHED and a short summary of what it did."
+                title: "3. The Reviewer",
+                desc: "Inspects output logs against system guardrails. Captures loop regressions, repetition bugs, and validates structural compliance before returning completion states."
             }
         };
 
@@ -753,6 +857,18 @@ python app.py</pre>
                 document.getElementById('agent-desc').innerText = agentData[agent].desc;
             });
         });
+
+        // Interactive Model Selector Script
+        function switchModel(modelName) {
+            document.querySelectorAll('.switcher-pills .pill').forEach(btn => {
+                if (btn.innerText === modelName) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+            document.getElementById('selected-model-cmd').innerText = modelName;
+        }
 
         // Script Automation Copy System
         function copyInstallScript() {
@@ -768,15 +884,43 @@ python app.py</pre>
             });
         }
 
-        // Live Simulated Shell Loop
+        // Real-time Stream Terminal Loop Simulator
+        let currentInterval = null;
         function simulateTerminal(promptText, outputText) {
+            if (currentInterval) clearInterval(currentInterval);
             const terminal = document.getElementById('sim-body');
             terminal.innerHTML = `<span style="color:#fff;">$ litelaw --process "${promptText}"</span>\n\n<span class="comment">[System matching multi-agent architecture parameters...]</span>\n`;
             
-            setTimeout(() => {
-                terminal.innerHTML += `<span style="color:var(--neon-magenta);">${outputText}</span>\n\n<span style="color:#27c93f;">$ _</span>`;
-            }, 850);
+            const lines = outputText.split('\n');
+            let lineIdx = 0;
+            
+            function printNextLine() {
+                if (lineIdx < lines.length) {
+                    terminal.innerHTML += `<span style="color:var(--neon-magenta);">${lines[lineIdx]}</span>\n`;
+                    lineIdx++;
+                    terminal.scrollTop = terminal.scrollHeight;
+                } else {
+                    terminal.innerHTML += `\n<span style="color:#27c93f;">$ _</span>`;
+                    clearInterval(currentInterval);
+                    currentInterval = null;
+                }
+            }
+            
+            currentInterval = setInterval(printNextLine, 350);
         }
+
+        // Back to Top functionality
+        const btt = document.getElementById('back-to-top');
+        window.addEventListener('scroll', () => {
+            if (window.scrollY > 400) {
+                btt.style.display = 'flex';
+            } else {
+                btt.style.display = 'none';
+            }
+        });
+        btt.addEventListener('click', () => {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
     </script>
 </body>
 </html>
