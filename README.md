@@ -78,7 +78,7 @@ No cloud calls, no API keys, no telemetry. Everything runs locally against your 
 2. **Clone the repository:**
 
    ```bash
-   git clone https://github.com/<your-username>/litelaw.git
+   git clone https://github.com/excellogalihs/litelaw.git
    cd litelaw
    ```
 
