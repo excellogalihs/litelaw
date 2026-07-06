@@ -87,7 +87,7 @@ No cloud calls, no API keys, no telemetry. Everything runs locally against your 
    litelaw is designed to be pip-only with no system-level binary dependencies (no Poppler, no Tesseract, etc.).
 
    ```bash
-   pip install flask pypdf python-docx Pillow ddgs
+   pip install flask pillow python-docx pypdf ddgs
    ```
 
 4. **Run the web dashboard:**
