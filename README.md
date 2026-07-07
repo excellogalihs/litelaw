@@ -21,10 +21,17 @@ No cloud calls, no API keys, no telemetry. Everything runs locally against your 
 - **Safety guardrails** — a hardcoded blocklist rejects destructive commands (`rm -rf /`, fork bombs, disk wipes, `mkfs`, `shutdown`, etc.) regardless of auto-approve settings.
 - **Web search** built in (DuckDuckGo via the `ddgs` package) so the agent can look things up without any API key.
 - **Browser control** — the agent can open URLs directly in your system's default browser.
+- **Robust subprocess handling** — GUI apps and long-running commands are launched with `Popen`/`start_new_session=True` instead of blocking `subprocess.run` calls, avoiding hangs, stray timeouts, and pipe-buffer deadlocks on output-heavy commands.
 
 ### 🧠 Persistent Memory
-- SQLite/JSON-backed memory store that persists facts and preferences across sessions, inspired by the Odysseus memory architecture.
+- SQLite-backed memory store that persists facts and preferences across sessions, inspired by the Odysseus memory architecture.
+- Nine memory categories with automatic deduplication, plus pin/enable toggles for individual memories.
 - Add, view, and delete individual memories, which are automatically injected into the agent's system prompt.
+- **Self-evolving memory** — after a task completes, the agent automatically generates its own `[learned]`-prefixed notes summarizing what it figured out, so future sessions benefit from past experience without any manual memory entry.
+
+### 🧩 Learned Skills
+- A dedicated "Learned Skills" panel (replacing the earlier, unreliable Deep Research feature) that stores reusable procedural playbooks the agent has picked up from completed tasks.
+- Skills are surfaced back to the agent as context on future runs, letting it reuse a known-good approach instead of re-deriving it from scratch.
 
 ### 📄 Document Workspace
 - Create, edit, save, rename, and delete lightweight text documents inside the app.
@@ -87,7 +94,7 @@ No cloud calls, no API keys, no telemetry. Everything runs locally against your 
    litelaw is designed to be pip-only with no system-level binary dependencies (no Poppler, no Tesseract, etc.).
 
    ```bash
-   pip install flask pillow python-docx pypdf ddgs
+   pip install flask pypdf python-docx Pillow ddgs
    ```
 
 4. **Run the web dashboard:**
@@ -147,9 +154,10 @@ All chats, memories, documents, reminders, and settings are stored locally in `l
 
 ```
 litelaw/
-├── app.py            # Flask web dashboard: routes, streaming, UI, file conversion, calendar
+├── app.py             # Flask web dashboard: routes, streaming, UI, file conversion, calendar
 ├── litelaw.py         # Core agent engine: Ollama calls, prompt, tools, CLI mode
-└── litelaw_store.json # Auto-created local data store (chats, memories, docs, reminders, settings)
+├── memory_store.py    # SQLite-backed persistent memory (categories, dedup, pin/enable, self-evolving notes)
+└── litelaw_store.json # Auto-created local data store (chats, docs, reminders, settings)
 ```
 
 ---
