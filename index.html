@@ -582,7 +582,7 @@
 
     <header class="hero">
         <h1>litelaw</h1>
-        <p>A lightweight local AI workspace for autonomous computer automation. Built around Ollama with document editing, persistent memory execution loops, and structural privacy sovereignty.</p>
+        <p>A lightweight local AI workspace for autonomous computer automation. Built around Ollama with document editing, self-evolving memory, learned skills, and structural privacy sovereignty.</p>
         <a href="https://github.com/excellogalihs/litelaw" target="_blank" class="btn-github">
             <i class="fab fa-github"></i> View on GitHub
         </a>
@@ -616,10 +616,10 @@
                 </div>
                 <div class="card">
                     <div class="card-header"><i class="fas fa-brain"></i><h3>Persistent Memory</h3></div>
-                    <p>Long-term knowledge storage layer extending beyond reboots to enforce rules across localized tasks.</p>
+                    <p>Long-term knowledge storage layer extending beyond reboots to enforce rules across localized tasks. Now self-evolving: the agent writes its own memory as it works.</p>
                     <ul>
                         <li>Maintains chosen coding conventions</li>
-                        <li>Saves global project and task contexts</li>
+                        <li>Auto-generates <code>[learned]</code>-tagged notes after each completed task</li>
                         <li>Injected into every new chat's system prompt</li>
                     </ul>
                 </div>
@@ -643,6 +643,15 @@
                         <li>Rewrite, expand, summarize and fix grammar</li>
                         <li>Import text files and export workspaces</li>
                         <li>Multi-document isolated track selection</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <div class="card-header"><i class="fas fa-graduation-cap"></i><h3>Learned Skills</h3></div>
+                    <p>A dedicated panel of reusable procedural playbooks the agent builds up on its own, replacing the old Deep Research module entirely.</p>
+                    <ul>
+                        <li>Auto-captured from completed task runs</li>
+                        <li>Reused as context on similar future prompts</li>
+                        <li>Viewable, editable, and prunable from the UI</li>
                     </ul>
                 </div>
                 <div class="card">
@@ -745,7 +754,7 @@ git clone https://github.com/excellogalihs/litelaw.git
 cd litelaw
 
 <span class="comment"># Provision local operational dependencies</span>
-pip install flask pillow python-docx pypdf ddgs
+pip install flask pillow python-docx pypdf duckduckgo_search
 
 <span class="comment"># Initialize and wake Ollama local server runtime</span>
 ollama serve
@@ -785,6 +794,9 @@ python app.py</pre>
                     <div class="prompt-opt" onclick="simulateTerminal('Open YouTube and search for lo-fi music.', 'Booting local background browser automated thread...\n[LAUNCHING] Targeting platform search hooks.\nPlaying track sequence.')">
                         <span>Open YouTube and search for lo-fi music.</span><i class="fas fa-terminal"></i>
                     </div>
+                    <div class="prompt-opt" onclick="simulateTerminal('Repeat that last conversion task.', 'Checking Learned Skills panel for a matching playbook...\n[FOUND] Reusing prior PDF→DOCX conversion skill.\n[LEARNED] Task pattern reinforced in memory store.\nTask finalized successfully.')">
+                        <span>Repeat that last conversion task.</span><i class="fas fa-terminal"></i>
+                    </div>
                 </div>
 
                 <div class="terminal-window playground-terminal">
@@ -812,8 +824,8 @@ python app.py</pre>
             <div>
                 <h2>Development Roadmap</h2>
                 <ul>
-                    <li><i class="far fa-circle"></i> Multi-agent workflows & autonomous planning</li>
-                    <li><i class="far fa-circle"></i> Better persistent memory optimization</li>
+                    <li><i class="fas fa-check-circle"></i> Multi-agent workflows & autonomous planning</li>
+                    <li><i class="fas fa-check-circle"></i> Self-evolving memory & Learned Skills</li>
                     <li><i class="far fa-circle"></i> File indexing & Semantic search (RAG)</li>
                     <li><i class="far fa-circle"></i> Plugin system & local vector database</li>
                     <li><i class="far fa-circle"></i> Voice interaction & Image understanding</li>
