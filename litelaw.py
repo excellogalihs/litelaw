@@ -220,36 +220,37 @@ def _jaccard(a, b):
     union = len(a | b)
     return inter / union if union else 0.0
 
-def _select_relevant_skills(skill_lines, query=None, limit=6):
-    """Pick a small, useful subset of learned-skill notes instead of dumping
-    every note the agent has ever written into the prompt. Unbounded injection
-    is exactly what made the Skills panel feel noisy: on CPU-constrained
-    hardware with small context windows, dozens of half-relevant one-liners
-    just crowd out the actual task and get ignored (or worse, confuse the
-    model).
-
-    If a query (the current user message) is given, rank notes by keyword
-    overlap with it and keep only the ones that actually share vocabulary.
-    Otherwise (e.g. a fresh chat with nothing typed yet), fall back to the
-    most recently learned notes, since those are most likely to reflect what
-    the project currently looks like.
+def _select_relevant_skill_entries(entries, query=None, limit=6):
+    """Same ranking logic as below, but operates on (id, text) pairs instead of
+    plain strings so a caller (the web app's usage-tracking / feedback loop)
+    can know exactly which stored skill entries were actually surfaced to the
+    model this turn -- not just their text.
     """
-    if not skill_lines:
+    if not entries:
         return []
-    if len(skill_lines) <= limit and not query:
-        return skill_lines
+    if len(entries) <= limit and not query:
+        return entries
     if query:
         q_tokens = _tokenize(query)
-        scored = [(_jaccard(q_tokens, _tokenize(s)), i, s) for i, s in enumerate(skill_lines)]
-        relevant = [(score, i, s) for score, i, s in scored if score > 0]
+        scored = [(_jaccard(q_tokens, _tokenize(text)), i, (eid, text)) for i, (eid, text) in enumerate(entries)]
+        relevant = [(score, i, e) for score, i, e in scored if score > 0]
         if relevant:
             relevant.sort(key=lambda t: (-t[0], -t[1]))
-            return [s for _, _, s in relevant[:limit]]
+            return [e for _, _, e in relevant[:limit]]
         # Nothing matched the current task's vocabulary -- don't force in
         # unrelated notes, just fall through to "most recent" below.
-    return skill_lines[-limit:]
+    return entries[-limit:]
 
-def get_system_prompt(memories=None, skills=None, query=None):
+def _select_relevant_skills(skill_lines, query=None, limit=6):
+    """Plain-string convenience wrapper around _select_relevant_skill_entries,
+    kept for callers (e.g. the CLI) that don't need to track which specific
+    entry was used.
+    """
+    entries = [(i, s) for i, s in enumerate(skill_lines)]
+    selected = _select_relevant_skill_entries(entries, query=query, limit=limit)
+    return [text for _, text in selected]
+
+def get_system_prompt(memories=None, skills=None, query=None, used_skill_ids_out=None):
     current_os = platform.system()
     
     memory_context = ""
@@ -258,10 +259,24 @@ def get_system_prompt(memories=None, skills=None, query=None):
 
     skill_context = ""
     if skills:
-        # Entries may be plain strings (older stores) or {"text": ...} dicts.
-        skill_lines = [s.get("text", "") if isinstance(s, dict) else s for s in skills]
-        skill_lines = [s for s in skill_lines if s]
-        skill_lines = _select_relevant_skills(skill_lines, query=query, limit=6)
+        # Entries may be plain strings (older stores) or {"id": ..., "text": ...} dicts.
+        entries = []
+        for s in skills:
+            if isinstance(s, dict):
+                text = s.get("text", "")
+                sid = s.get("id") or text
+            else:
+                text = s
+                sid = s
+            if text:
+                entries.append((sid, text))
+        selected = _select_relevant_skill_entries(entries, query=query, limit=6)
+        # Let the caller (the web app) know which specific stored skills were
+        # actually injected this turn, so it can record "this skill got used"
+        # -- the feedback signal the noisy-skill pruning relies on.
+        if used_skill_ids_out is not None:
+            used_skill_ids_out.extend(sid for sid, _ in selected)
+        skill_lines = [text for _, text in selected]
         if skill_lines:
             skill_context = "\n\nLEARNED SKILLS (notes litelaw wrote itself after past tasks -- apply them when relevant, ignore any that don't fit this task):\n" + \
                              "\n".join(f"- {s}" for s in skill_lines)
@@ -453,6 +468,131 @@ def call_ollama_stream(messages, model=None, context_size=None):
     except Exception as e:
         print(f"\n🛑 [Error] Ollama response error: {e}")
         return
+
+# --- Native tool-calling (opt-in alternative to the ACTION:/COMMAND:/ANSWER: text
+# protocol above). Models that actually support Ollama's function-calling API
+# (qwen3, llama3.1+, mistral-nemo, etc -- notably NOT gemma3) can be given real
+# tool definitions instead of being asked to follow a strict text format, which
+# removes a whole layer of regex parsing and typo-correction that only exists
+# because small models drift from a text-based protocol. Ollama's tool-calling
+# only returns complete tool_calls on non-streaming responses, so this path
+# does one blocking call per step rather than streaming tokens.
+TOOL_SPECS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "run_command",
+            "description": "Run a single shell command on the user's machine and see its output. "
+                            "Use this to inspect the system, create/edit files, or take any action the task needs.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "The exact shell command to execute, e.g. \"ls -la\" or \"echo 'hello' > file.txt\"."
+                    }
+                },
+                "required": ["command"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "finish",
+            "description": "Call this once the task is complete and no more commands are needed, to give the "
+                            "user your final answer/summary.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "answer": {
+                        "type": "string",
+                        "description": "The final natural-language answer or summary for the user."
+                    }
+                },
+                "required": ["answer"]
+            }
+        }
+    }
+]
+
+def get_tools_system_prompt(memories=None, skills=None, query=None, used_skill_ids_out=None):
+    """System prompt for the native tool-calling agent loop. Much shorter than
+    get_system_prompt's, because the tool schemas above -- not prose -- define
+    the response format, so there's no ACTION:/COMMAND:/ANSWER: protocol (or
+    the typo-correction machinery that exists to compensate for small models
+    drifting from it) to explain.
+    """
+    memory_context = ""
+    if memories:
+        memory_context = "\n\nPERSISTENT CONTEXT & MEMORIES FROM PAST SESSIONS:\n" + "\n".join(f"- {m}" for m in memories)
+
+    skill_context = ""
+    if skills:
+        entries = []
+        for s in skills:
+            if isinstance(s, dict):
+                text = s.get("text", "")
+                sid = s.get("id") or text
+            else:
+                text = s
+                sid = s
+            if text:
+                entries.append((sid, text))
+        selected = _select_relevant_skill_entries(entries, query=query, limit=6)
+        if used_skill_ids_out is not None:
+            used_skill_ids_out.extend(sid for sid, _ in selected)
+        skill_lines = [text for _, text in selected]
+        if skill_lines:
+            skill_context = "\n\nLEARNED SKILLS (notes litelaw wrote itself after past tasks -- apply them when relevant, ignore any that don't fit this task):\n" + \
+                             "\n".join(f"- {s}" for s in skill_lines)
+
+    return (f"You are \"litelaw\", a computer automation agent running on the user's own machine "
+            f"({platform.system()}).{memory_context}{skill_context}\n\n"
+            "You have two tools: run_command to execute a shell command and see its output, and "
+            "finish to give your final answer once the task is done. Call run_command as many times "
+            "as needed, one command at a time, then call finish with a clear, concise summary of what "
+            "you did and any relevant results. Don't call finish and run_command in the same turn. "
+            "If the task is just a greeting or doesn't need any commands, call finish immediately.")
+
+def call_ollama_tools(messages, model=None, context_size=None, tools=None):
+    """Non-streaming call to Ollama's /api/chat with function-calling tools.
+    Returns the raw message dict (which may include a 'tool_calls' list), or
+    None on failure.
+    """
+    resolved_model = model or MODEL
+    if not resolved_model:
+        print(f"\n\uf071  [Error] No model configured. Set the LITEMODEL environment variable, "
+              f"or choose an installed model in Settings if you're using the web app.")
+        return None
+    payload = {
+        "model": resolved_model,
+        "messages": messages,
+        "stream": False,
+        "keep_alive": OLLAMA_KEEP_ALIVE,
+        "tools": tools if tools is not None else TOOL_SPECS,
+        "options": _build_options(context_size)
+    }
+    req = urllib.request.Request(
+        OLLAMA_URL,
+        data=json.dumps(payload).encode('utf-8'),
+        headers={'Content-Type': 'application/json'}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=120) as response:
+            res_body = response.read().decode('utf-8')
+            res_json = json.loads(res_body)
+            return res_json.get('message')
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8') if e.fp else ""
+        print(f"\n🛑 [Error] Ollama HTTP {e.code}: {error_body}")
+        return None
+    except urllib.error.URLError as e:
+        print(f"\n🛑 [Error] Could not connect to Ollama. Ensure it's running. ({e.reason})")
+        return None
+    except Exception as e:
+        print(f"\n🛑 [Error] Ollama response error: {e}")
+        return None
 
 # Destructive command patterns that are ALWAYS blocked, regardless of AUTO_APPROVE.
 # gemma3:1b can hallucinate dangerous commands confidently, so this guardrail is

@@ -15,8 +15,10 @@ from PIL import Image
 
 from litelaw import (
     get_system_prompt,
+    get_tools_system_prompt,
     call_ollama,
     call_ollama_stream,
+    call_ollama_tools,
     execute_command,
     parse_response,
     list_models,
@@ -46,6 +48,32 @@ STORE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "litelaw_s
 # and corrupt the JSON file or silently drop updates (lost-update race).
 STORE_LOCK = threading.RLock()
 
+# Lets the client stop an in-progress agent turn server-side, not just stop
+# reading the SSE stream. Keyed by a one-off turn_id (not chat_id, since a
+# chat_id is reused across many turns and a stale event from a finished turn
+# must never bleed into the next one). See /api/chat/cancel and
+# web_run_agent_stream/run_multi_agent_stream's cancel_event checks.
+_CANCEL_EVENTS = {}
+_CANCEL_LOCK = threading.Lock()
+
+def _register_cancel_event(turn_id):
+    ev = threading.Event()
+    with _CANCEL_LOCK:
+        _CANCEL_EVENTS[turn_id] = ev
+    return ev
+
+def _request_cancel(turn_id):
+    with _CANCEL_LOCK:
+        ev = _CANCEL_EVENTS.get(turn_id)
+        if ev is not None:
+            ev.set()
+            return True
+        return False
+
+def _unregister_cancel_event(turn_id):
+    with _CANCEL_LOCK:
+        _CANCEL_EVENTS.pop(turn_id, None)
+
 def _default_store():
     """Returns a fresh copy of the default out-of-the-box state (new chats/memories/
     documents/settings), used both on first run and by the factory-reset endpoint."""
@@ -66,10 +94,12 @@ def _default_store():
             {
                 "text": "Skills are notes litelaw writes itself after finishing a task, so it can do better next time. They fill in automatically -- you can also add your own.",
                 "source": "system",
-                "created": _now()
+                "created": _now(),
+                "id": uuid.uuid4().hex[:8],
+                "uses": 0, "helpful": 0, "unhelpful": 0,
             }
         ],
-        "settings": {"model": NO_MODEL, "context_size": DEFAULT_CONTEXT_SIZE}
+        "settings": {"model": NO_MODEL, "context_size": DEFAULT_CONTEXT_SIZE, "tool_calling": False}
     }
 
 def load_store():
@@ -87,10 +117,29 @@ def load_store():
                 data.setdefault("settings", {})
                 data["settings"].setdefault("model", NO_MODEL)
                 data["settings"].setdefault("context_size", DEFAULT_CONTEXT_SIZE)
+                data["settings"].setdefault("tool_calling", False)
+                # Migrate any skill entries saved before usage-tracking/feedback
+                # existed (or plain-string legacy entries) so every skill has a
+                # stable id and the counters the feedback loop relies on.
+                migrated = False
+                for i, s in enumerate(data["skills"]):
+                    if not isinstance(s, dict):
+                        data["skills"][i] = {"text": s, "source": "manual", "created": _now()}
+                        s = data["skills"][i]
+                        migrated = True
+                    if "id" not in s:
+                        s["id"] = uuid.uuid4().hex[:8]
+                        migrated = True
+                    for counter in ("uses", "helpful", "unhelpful"):
+                        if counter not in s:
+                            s[counter] = 0
+                            migrated = True
+                if migrated:
+                    save_store(data)
                 return data
         except Exception:
             return {"chats": {}, "memories": [], "documents": {}, "reminders": {}, "skills": [],
-                    "settings": {"model": NO_MODEL, "context_size": DEFAULT_CONTEXT_SIZE}}
+                    "settings": {"model": NO_MODEL, "context_size": DEFAULT_CONTEXT_SIZE, "tool_calling": False}}
 
 def save_store(data):
     """Persist store dictionary cleanly back to disk."""
@@ -297,13 +346,59 @@ def _save_skill(text, source="auto"):
             existing_text = s.get("text", "") if isinstance(s, dict) else s
             if _jaccard(new_tokens, _tokenize(existing_text)) >= _SKILL_DEDUP_THRESHOLD:
                 return skills
-        skills.append({"text": text.strip(), "source": source, "created": _now()})
+        skills.append({
+            "text": text.strip(), "source": source, "created": _now(),
+            "id": uuid.uuid4().hex[:8], "uses": 0, "helpful": 0, "unhelpful": 0,
+        })
         if len(skills) > 100:
             skills[:] = skills[-100:]
         save_store(store)
         return skills
 
-def web_run_agent_stream(user_goal, session_messages, memories, model=None, context_size=None):
+def _track_skill_usage(used_ids):
+    """Increments the 'uses' counter for skills that get_system_prompt actually
+    injected into a turn's prompt. Re-reads the store fresh under the lock
+    (same pattern as persist_chat/_save_skill) so this doesn't clobber
+    concurrent edits from the Skills panel or a slow background learning call.
+    """
+    if not used_ids:
+        return
+    with STORE_LOCK:
+        store = load_store()
+        changed = False
+        for s in store.get("skills", []):
+            if isinstance(s, dict) and s.get("id") in used_ids:
+                s["uses"] = s.get("uses", 0) + 1
+                changed = True
+        if changed:
+            save_store(store)
+
+_SKILL_AUTO_PRUNE_MARGIN = 3  # unhelpful - helpful votes before a skill is auto-removed
+
+def _apply_skill_feedback(index, helpful):
+    """Records a thumbs up/down on a skill note and auto-prunes it once it's
+    racked up enough 'unhelpful' votes to be clearly noise -- the pruning
+    signal that dedup/relevance-ranking alone can't provide, since those only
+    catch redundant or off-topic notes, not notes that are simply wrong or
+    unhelpful even when they *are* relevant.
+    """
+    with STORE_LOCK:
+        store = load_store()
+        skills = store.setdefault("skills", [])
+        removed = False
+        if 0 <= index < len(skills) and isinstance(skills[index], dict):
+            skill = skills[index]
+            if helpful:
+                skill["helpful"] = skill.get("helpful", 0) + 1
+            else:
+                skill["unhelpful"] = skill.get("unhelpful", 0) + 1
+            if skill.get("unhelpful", 0) - skill.get("helpful", 0) >= _SKILL_AUTO_PRUNE_MARGIN:
+                skills.pop(index)
+                removed = True
+        save_store(store)
+        return store["skills"], removed
+
+def web_run_agent_stream(user_goal, session_messages, memories, model=None, context_size=None, cancel_event=None):
     """Generator that yields token + step events for real-time SSE streaming."""
     now = _now()
 
@@ -326,12 +421,25 @@ def web_run_agent_stream(user_goal, session_messages, memories, model=None, cont
     consecutive_no_action = 0
     commands_without_finish = 0
     for step in range(10):
+        if cancel_event is not None and cancel_event.is_set():
+            yield {"type": "cancelled", "text": "Stopped by user.", "time": now}
+            return
+
         yield {"type": "thinking_start", "time": now}
 
         response_parts = []
+        cancelled_mid_stream = False
         for token in call_ollama_stream(session_messages, model=model, context_size=context_size):
+            if cancel_event is not None and cancel_event.is_set():
+                cancelled_mid_stream = True
+                break
             response_parts.append(token)
             yield {"type": "token", "text": token}
+
+        if cancelled_mid_stream:
+            yield {"type": "thinking_end"}
+            yield {"type": "cancelled", "text": "Stopped by user.", "time": now}
+            return
 
         response = "".join(response_parts)
         if not response:
@@ -365,6 +473,9 @@ def web_run_agent_stream(user_goal, session_messages, memories, model=None, cont
             elif repeats >= 2:
                 yield {"type": "warning", "text": f"Warning: command '{target}' is repeating. Task may already be done.", "time": now}
                 yield {"type": "command", "text": target, "time": now}
+                if cancel_event is not None and cancel_event.is_set():
+                    yield {"type": "cancelled", "text": "Stopped by user before running the command.", "time": now}
+                    return
                 cmd_output = execute_command(target)
                 yield {"type": "output", "text": cmd_output.strip(), "time": now}
                 session_messages.append({"role": "user", "content": f"Command output:\n{cmd_output}\n\nNote: You already ran this command. If it worked, say ACTION: FINISHED. Do NOT repeat the same command.", "time": now})
@@ -408,6 +519,9 @@ def web_run_agent_stream(user_goal, session_messages, memories, model=None, cont
                     pass
 
             yield {"type": "command", "text": target, "time": now}
+            if cancel_event is not None and cancel_event.is_set():
+                yield {"type": "cancelled", "text": "Stopped by user before running the command.", "time": now}
+                return
             cmd_output = execute_command(target)
             yield {"type": "output", "text": cmd_output.strip(), "time": now}
             session_messages.append({"role": "user", "content": f"Command output:\n{cmd_output}", "time": now})
@@ -448,6 +562,138 @@ def web_run_agent_stream(user_goal, session_messages, memories, model=None, cont
                 break
             yield {"type": "warning", "text": "Formatting misalignment detected; adjusting agent constraints.", "time": now}
             session_messages.append({"role": "user", "content": "Invalid layout. Return your move strictly using ACTION: RUN_COMMAND or ACTION: FINISHED.", "time": now})
+    else:
+        yield {"type": "error", "text": "Reached step threshold limit before closure.", "time": now}
+
+    trim_context(session_messages)
+
+
+def web_run_agent_tools_stream(user_goal, session_messages, memories, model=None, context_size=None, cancel_event=None):
+    """Native tool-calling counterpart to web_run_agent_stream, for models that
+    actually support Ollama's function-calling API (see TOOL_SPECS and
+    get_tools_system_prompt in litelaw.py -- notably qwen3, not gemma3). Skips
+    the ACTION:/COMMAND:/ANSWER: text protocol, and the typo-correction/regex
+    parsing that exists only to compensate for small models drifting from it,
+    entirely -- the tool schema defines the response shape instead of prose
+    asking the model to follow one.
+
+    Ollama only returns complete tool_calls on non-streaming responses, so
+    unlike web_run_agent_stream this can't stream individual tokens; it emits
+    a "thinking_start"/"thinking_end" pair around each blocking call instead,
+    so the UI still shows the same "thinking" indicator.
+    """
+    now = _now()
+
+    if _is_pure_greeting(user_goal):
+        session_messages.append({"role": "user", "content": f"Task: {user_goal}", "time": now})
+        reply = _greeting_reply(user_goal)
+        session_messages.append({"role": "assistant", "content": reply, "time": now})
+        yield {"type": "final", "text": reply, "time": now}
+        return
+
+    session_messages.append({"role": "user", "content": f"Task: {user_goal}", "time": now})
+
+    if not model:
+        yield {"type": "error", "text": "No model selected. Open Settings and choose an installed Ollama model before running a task.", "time": now}
+        return
+
+    command_history = []
+
+    for step in range(10):
+        if cancel_event is not None and cancel_event.is_set():
+            yield {"type": "cancelled", "text": "Stopped by user.", "time": now}
+            return
+
+        yield {"type": "thinking_start", "time": now}
+        message = call_ollama_tools(session_messages, model=model, context_size=context_size)
+        yield {"type": "thinking_end"}
+
+        if cancel_event is not None and cancel_event.is_set():
+            yield {"type": "cancelled", "text": "Stopped by user.", "time": now}
+            return
+
+        if message is None:
+            yield {"type": "error", "text": "Failed to reach Ollama. Make sure it's running (ollama serve)."}
+            break
+
+        content_text = message.get("content") or ""
+        tool_calls = message.get("tool_calls") or []
+
+        # Store exactly what came back so a future turn's context (and chat-history
+        # reconstruction) reflects what the model actually did, not a paraphrase.
+        session_messages.append({"role": "assistant", "content": content_text, "tool_calls": tool_calls, "time": now})
+
+        if not tool_calls:
+            # Model replied with plain text instead of calling a tool -- treat
+            # that as its final answer rather than erroring out, since some
+            # tool-capable models still do this for simple conversational replies.
+            final_text = content_text.strip() or "Done."
+            yield {"type": "final", "text": final_text, "time": now}
+            if command_history and model:
+                note = _generate_skill_note(user_goal, command_history, final_text, model=model, context_size=context_size)
+                if note:
+                    _save_skill(note, source="auto")
+                    yield {"type": "skill_learned", "text": note, "time": now}
+            break
+
+        if content_text.strip():
+            yield {"type": "thought", "text": content_text.strip(), "time": now}
+
+        finished = False
+        final_text = ""
+        for tc in tool_calls:
+            fn = tc.get("function", {}) or {}
+            fname = fn.get("name")
+            raw_args = fn.get("arguments")
+            if isinstance(raw_args, str):
+                try:
+                    args = json.loads(raw_args)
+                except (TypeError, ValueError):
+                    args = {}
+            else:
+                args = raw_args or {}
+
+            if fname == "run_command":
+                target = str(args.get("command", "")).strip()
+                if not target:
+                    session_messages.append({"role": "tool", "content": "Error: no command given.",
+                                              "name": fname, "tool_call_id": tc.get("id", ""), "time": now})
+                    continue
+
+                command_history.append(target)
+                repeats = sum(1 for c in command_history[-3:] if c == target)
+                if repeats >= 3:
+                    yield {"type": "warning", "text": f"Loop detected: command '{target}' repeated {repeats} times.", "time": now}
+                    session_messages.append({"role": "tool", "content": "That command already ran. Call finish now instead of repeating it.",
+                                              "name": fname, "tool_call_id": tc.get("id", ""), "time": now})
+                    continue
+
+                yield {"type": "command", "text": target, "time": now}
+                if cancel_event is not None and cancel_event.is_set():
+                    yield {"type": "cancelled", "text": "Stopped by user before running the command.", "time": now}
+                    return
+                cmd_output = execute_command(target)
+                yield {"type": "output", "text": cmd_output.strip(), "time": now}
+                session_messages.append({"role": "tool", "content": cmd_output,
+                                          "name": fname, "tool_call_id": tc.get("id", ""), "time": now})
+
+            elif fname == "finish":
+                final_text = _clean_answer(str(args.get("answer", "")).strip()) or "Done."
+                finished = True
+                session_messages.append({"role": "tool", "content": "ok",
+                                          "name": fname, "tool_call_id": tc.get("id", ""), "time": now})
+            else:
+                session_messages.append({"role": "tool", "content": f"Unknown tool '{fname}'.",
+                                          "name": fname or "unknown", "tool_call_id": tc.get("id", ""), "time": now})
+
+        if finished:
+            yield {"type": "final", "text": final_text, "time": now}
+            if command_history and model:
+                note = _generate_skill_note(user_goal, command_history, final_text, model=model, context_size=context_size)
+                if note:
+                    _save_skill(note, source="auto")
+                    yield {"type": "skill_learned", "text": note, "time": now}
+            break
     else:
         yield {"type": "error", "text": "Reached step threshold limit before closure.", "time": now}
 
@@ -571,7 +817,7 @@ def _review_run(user_goal, transcript, model=None, context_size=None):
     return verdict, answer
 
 
-def run_multi_agent_stream(user_goal, session_messages, memories, model=None, context_size=None):
+def run_multi_agent_stream(user_goal, session_messages, memories, model=None, context_size=None, cancel_event=None):
     """Planner -> Executor -> Reviewer pipeline (Odysseus-style multi-agent mode).
 
     This drives the task-queue / agent-badge / review-verdict UI that already existed
@@ -595,6 +841,10 @@ def run_multi_agent_stream(user_goal, session_messages, memories, model=None, co
         yield {"type": "error", "text": "No model selected. Open Settings and choose an installed Ollama model before running a task.", "time": now}
         return
 
+    if cancel_event is not None and cancel_event.is_set():
+        yield {"type": "cancelled", "text": "Stopped by user.", "time": now}
+        return
+
     yield {"type": "thinking_start", "agent": "planner", "time": now}
     plan, planned_ok = _plan_subtasks(user_goal, model=model, context_size=context_size)
     yield {"type": "thinking_end"}
@@ -607,7 +857,12 @@ def run_multi_agent_stream(user_goal, session_messages, memories, model=None, co
 
     transcript_parts = []
     aborted = False
+    cancelled = False
     for idx, subtask in enumerate(plan):
+        if cancel_event is not None and cancel_event.is_set():
+            cancelled = True
+            break
+
         queue[idx]["status"] = "active"
         yield {"type": "task_queue", "queue": list(queue), "time": now}
 
@@ -615,13 +870,25 @@ def run_multi_agent_stream(user_goal, session_messages, memories, model=None, co
         subtask_done = False
 
         for _step in range(4):
+            if cancel_event is not None and cancel_event.is_set():
+                cancelled = True
+                break
+
             yield {"type": "thinking_start", "agent": "executor", "time": now}
             response_parts = []
+            cancelled_mid_stream = False
             for token in call_ollama_stream(session_messages, model=model, context_size=context_size):
+                if cancel_event is not None and cancel_event.is_set():
+                    cancelled_mid_stream = True
+                    break
                 response_parts.append(token)
                 yield {"type": "token", "text": token}
             response = "".join(response_parts)
             yield {"type": "thinking_end"}
+
+            if cancelled_mid_stream:
+                cancelled = True
+                break
 
             if not response:
                 yield {"type": "error", "text": "Failed to reach Ollama. Make sure it's running (ollama serve).", "time": now}
@@ -636,6 +903,9 @@ def run_multi_agent_stream(user_goal, session_messages, memories, model=None, co
                 target = _fix_typos(target)
                 transcript_parts.append(f"$ {target}")
                 yield {"type": "command", "agent": "executor", "text": target, "time": now}
+                if cancel_event is not None and cancel_event.is_set():
+                    cancelled = True
+                    break
                 cmd_output = execute_command(target)
                 transcript_parts.append(cmd_output.strip())
                 yield {"type": "output", "agent": "executor", "text": cmd_output.strip(), "time": now}
@@ -653,8 +923,13 @@ def run_multi_agent_stream(user_goal, session_messages, memories, model=None, co
 
         queue[idx]["status"] = "done" if subtask_done else "failed"
         yield {"type": "task_queue", "queue": list(queue), "time": now}
-        if aborted:
+        if aborted or cancelled:
             break
+
+    if cancelled:
+        yield {"type": "cancelled", "text": "Stopped by user.", "time": now}
+        trim_context(session_messages)
+        return
 
     transcript = "\n".join(transcript_parts) if transcript_parts else "(no commands were run)"
     yield {"type": "thinking_start", "agent": "reviewer", "time": now}
@@ -713,7 +988,8 @@ def models_list():
         # False = either nothing has been selected yet, or what's selected
         # isn't actually pulled in Ollama -- either way, not a valid active model.
         "current_model_installed": (bool(current_model) and current_model in models) if models else None,
-        "context_size": settings.get("context_size", DEFAULT_CONTEXT_SIZE)
+        "context_size": settings.get("context_size", DEFAULT_CONTEXT_SIZE),
+        "tool_calling": bool(settings.get("tool_calling")),
     })
 
 @app.route("/api/settings/save", methods=["POST"])
@@ -735,6 +1011,9 @@ def settings_save():
         except (TypeError, ValueError):
             pass
 
+        if "tool_calling" in data:
+            settings["tool_calling"] = bool(data.get("tool_calling"))
+
         save_store(store)
         settings_copy = dict(settings)
     return jsonify({"ok": True, "settings": settings_copy})
@@ -753,11 +1032,13 @@ def create_new_chat():
     with STORE_LOCK:
         store = load_store()
         chat_id = uuid.uuid4().hex
+        tool_calling = bool(store.get("settings", {}).get("tool_calling"))
+        prompt_fn = get_tools_system_prompt if tool_calling else get_system_prompt
 
         # Pre-inject system prompt bundled with current persistent memories
         store["chats"][chat_id] = {
             "title": "Untitled Operations Thread",
-            "messages": [{"role": "system", "content": get_system_prompt(store["memories"], store.get("skills"))}]
+            "messages": [{"role": "system", "content": prompt_fn(store["memories"], store.get("skills"))}]
         }
         save_store(store)
         title = store["chats"][chat_id]["title"]
@@ -777,13 +1058,35 @@ def get_chat_history():
     # Parse existing history back into interactive client steps
     for idx, m in enumerate(raw_msgs):
         ts = m.get("time", "")
-        if m["role"] == "user" and m["content"].startswith("Task: "):
-            text = m["content"].replace("Task: ", "", 1)
+        content = m.get("content") or ""
+        if m["role"] == "user" and content.startswith("Task: "):
+            text = content.replace("Task: ", "", 1)
             if text.startswith("User instruction: "):
                 text = text.replace("User instruction: ", "", 1)
             visible_steps.append({"type": "user_msg", "text": text, "time": ts})
+        elif m["role"] == "assistant" and m.get("tool_calls"):
+            # Native tool-calling turn (see web_run_agent_tools_stream) --
+            # different shape from the ACTION:/COMMAND:/ANSWER: text protocol below.
+            if content.strip():
+                visible_steps.append({"type": "thought", "text": content.strip(), "time": ts})
+            for tc in m["tool_calls"]:
+                fn = tc.get("function", {}) or {}
+                fname = fn.get("name")
+                args = fn.get("arguments")
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args)
+                    except (TypeError, ValueError):
+                        args = {}
+                args = args or {}
+                if fname == "run_command":
+                    visible_steps.append({"type": "command", "text": args.get("command", ""), "time": ts})
+                    if idx + 1 < len(raw_msgs) and raw_msgs[idx + 1]["role"] == "tool":
+                        visible_steps.append({"type": "output", "text": raw_msgs[idx + 1].get("content", ""), "time": ts})
+                elif fname == "finish":
+                    visible_steps.append({"type": "final", "text": args.get("answer", ""), "time": ts})
         elif m["role"] == "assistant":
-            resp = m["content"]
+            resp = content
             thought_lines = [line.replace("THOUGHT:", "").strip() for line in resp.split('\n') if line.startswith("THOUGHT:")]
             
             # Look at subsequent indices for command execution outputs
@@ -804,6 +1107,11 @@ def get_chat_history():
                 else:
                     final_text = clean_target
                 visible_steps.append({"type": "final", "text": final_text, "time": ts})
+            elif resp.strip():
+                # Plain assistant reply with no ACTION protocol at all -- e.g. the
+                # tool-calling loop's greeting shortcut, or a tool-capable model
+                # that answered in plain text without calling a tool.
+                visible_steps.append({"type": "final", "text": resp.strip(), "time": ts})
                 
     return jsonify({"steps": visible_steps})
 
@@ -817,23 +1125,28 @@ def chat():
         return jsonify({"steps": [{"type": "error", "text": "Empty command syntax query submission."}]})
 
     store = load_store()
-    
+    settings = store.get("settings", {})
+    tool_calling = bool(settings.get("tool_calling"))
+    prompt_fn = get_tools_system_prompt if tool_calling else get_system_prompt
+
     # If client lacks an active session ID or thread got deleted, spin a new one up
     if not chat_id or chat_id not in store["chats"]:
         chat_id = uuid.uuid4().hex
         store["chats"][chat_id] = {
             "title": message[:32] + "..." if len(message) > 32 else message,
-            "messages": [{"role": "system", "content": get_system_prompt(store["memories"], store.get("skills"), query=message)}]
+            "messages": [{"role": "system", "content": prompt_fn(store["memories"], store.get("skills"), query=message)}]
         }
     elif store["chats"][chat_id]["title"] == "Untitled Operations Thread":
         store["chats"][chat_id]["title"] = message[:32] + "..." if len(message) > 32 else message
 
     session_messages = store["chats"][chat_id]["messages"]
-    session_messages[0] = {"role": "system", "content": get_system_prompt(store["memories"], store.get("skills"), query=message)}
-    settings = store.get("settings", {})
+    used_skill_ids = []
+    session_messages[0] = {"role": "system", "content": prompt_fn(store["memories"], store.get("skills"), query=message, used_skill_ids_out=used_skill_ids)}
+    _track_skill_usage(used_skill_ids)
     title = store["chats"][chat_id]["title"]
-    steps = web_run_agent(message, session_messages, store["memories"],
-                           model=settings.get("model"), context_size=settings.get("context_size"))
+    runner = web_run_agent_tools_stream if tool_calling else web_run_agent_stream
+    steps = list(runner(message, session_messages, store["memories"],
+                         model=settings.get("model"), context_size=settings.get("context_size")))
 
     persist_chat(chat_id, session_messages, title=title)
 
@@ -852,41 +1165,80 @@ def chat_stream():
         return Response(stream_with_context(empty_gen()), content_type="text/event-stream")
 
     store = load_store()
+    settings = store.get("settings", {})
+    tool_calling = bool(settings.get("tool_calling"))
+    prompt_fn = get_tools_system_prompt if tool_calling else get_system_prompt
 
     if not chat_id or chat_id not in store["chats"]:
         chat_id = uuid.uuid4().hex
         store["chats"][chat_id] = {
             "title": message[:32] + "..." if len(message) > 32 else message,
-            "messages": [{"role": "system", "content": get_system_prompt(store["memories"], store.get("skills"), query=message)}]
+            "messages": [{"role": "system", "content": prompt_fn(store["memories"], store.get("skills"), query=message)}]
         }
     elif store["chats"][chat_id]["title"] == "Untitled Operations Thread":
         store["chats"][chat_id]["title"] = message[:32] + "..." if len(message) > 32 else message
 
     session_messages = store["chats"][chat_id]["messages"]
-    session_messages[0] = {"role": "system", "content": get_system_prompt(store["memories"], store.get("skills"), query=message)}
+    used_skill_ids = []
+    session_messages[0] = {"role": "system", "content": prompt_fn(store["memories"], store.get("skills"), query=message, used_skill_ids_out=used_skill_ids)}
+    _track_skill_usage(used_skill_ids)
 
-    settings = store.get("settings", {})
     title = store["chats"][chat_id]["title"]
-    multi_agent = bool(data.get("multi_agent"))
+    # Multi-agent (planner/executor/reviewer) mode is text-protocol-only for now --
+    # it doesn't have a tool-calling counterpart yet, so tool_calling wins if both
+    # happen to be on rather than silently mixing the two.
+    multi_agent = bool(data.get("multi_agent")) and not tool_calling
+
+    turn_id = uuid.uuid4().hex
+    cancel_event = _register_cancel_event(turn_id)
 
     def generate():
         # `finally` guarantees the turn is saved even if the client aborts the
         # fetch (which raises GeneratorExit here) or an exception is thrown
         # mid-stream. Previously, an aborted request silently discarded
         # everything the agent had done in that turn.
+        #
+        # turn_id is sent first so the client can call /api/chat/cancel with
+        # it -- that's what actually stops the agent loop (checked between
+        # steps and mid-token-stream in the runner), as opposed to just
+        # aborting the fetch, which only stops the client from reading further
+        # while the model/command execution keeps running server-side.
+        cancelled = False
         try:
-            runner = (run_multi_agent_stream if multi_agent else web_run_agent_stream)
+            yield json.dumps({"type": "turn_id", "turn_id": turn_id}) + "\n"
+            if tool_calling:
+                runner = web_run_agent_tools_stream
+            else:
+                runner = run_multi_agent_stream if multi_agent else web_run_agent_stream
             for step in runner(message, session_messages, store["memories"],
-                                model=settings.get("model"), context_size=settings.get("context_size")):
+                                model=settings.get("model"), context_size=settings.get("context_size"),
+                                cancel_event=cancel_event):
+                if step.get("type") == "cancelled":
+                    cancelled = True
                 yield json.dumps(step) + "\n"
-            yield json.dumps({"type": "done", "chat_id": chat_id, "title": title}) + "\n"
+            if not cancelled:
+                yield json.dumps({"type": "done", "chat_id": chat_id, "title": title}) + "\n"
         except Exception as e:
             yield json.dumps({"type": "error", "text": str(e)}) + "\n"
         finally:
             persist_chat(chat_id, session_messages, title=title)
+            _unregister_cancel_event(turn_id)
 
     return Response(stream_with_context(generate()), content_type="text/event-stream",
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+@app.route("/api/chat/cancel", methods=["POST"])
+def cancel_chat():
+    """Signals an in-progress /api/chat/stream turn to stop at its next checkpoint
+    (between agent steps, or mid-token-stream from Ollama). This is what actually
+    halts the server-side loop -- aborting the client's fetch alone only stops the
+    browser from reading further, it doesn't touch what's still running server-side."""
+    data = request.get_json(force=True) or {}
+    turn_id = (data.get("turn_id") or "").strip()
+    if not turn_id:
+        return jsonify({"error": "turn_id required"}), 400
+    found = _request_cancel(turn_id)
+    return jsonify({"ok": True, "found": found})
 
 # --- Document Editor AI Route ---
 @app.route("/api/chat/doc", methods=["POST"])
@@ -1096,6 +1448,20 @@ def delete_skill():
             save_store(store)
         skills = store["skills"]
     return jsonify({"ok": True, "skills": skills})
+
+@app.route("/api/skills/feedback", methods=["POST"])
+def skill_feedback():
+    """Records a thumbs up/down on a skill note. A skill that racks up enough
+    'unhelpful' votes gets auto-pruned -- see _apply_skill_feedback."""
+    data = request.get_json(force=True) or {}
+    index = data.get("index")
+    helpful = bool(data.get("helpful"))
+    try:
+        index = int(index)
+    except (TypeError, ValueError):
+        return jsonify({"error": "index required"}), 400
+    skills, removed = _apply_skill_feedback(index, helpful)
+    return jsonify({"ok": True, "skills": skills, "removed": removed})
 
 # --- Document Workspaces Routes ---
 @app.route("/api/documents/get", methods=["GET"])
@@ -2401,6 +2767,14 @@ textarea#msg{ flex:1; resize:none; background:transparent; border:none; outline:
             </div>
           </div>
 
+          <div style="margin-bottom:20px;">
+            <label style="display:block; font-size:12.5px; color:var(--text-dim); margin-bottom:6px; text-transform:uppercase; letter-spacing:0.04em;">Agent Protocol</label>
+            <div class="agent-mode-toggle" id="toolCallingToggle" style="display:inline-flex;" title="Uses the model's native function-calling API instead of the ACTION:/COMMAND:/ANSWER: text format. Only works with tool-capable models like qwen3 -- gemma3 does not support it and will likely just talk instead of acting.">
+              <span class="dot"></span><span>Native tool calling</span>
+            </div>
+            <div style="font-size:12px; color:var(--text-dim); margin-top:6px;">Requires a tool-capable model (e.g. qwen3). Turns off multi-agent mode while enabled.</div>
+          </div>
+
           <button class="sidebar-btn" id="saveSettingsBtn" style="width:auto; margin:0;">&#xf0c7; Save Settings</button>
           <button class="sidebar-btn" id="refreshModelsBtn" style="width:auto; align-self:center; margin:12px auto 0 auto; background:rgba(255,255,255,0.04);">&#xf021; Refresh Model List</button>
           <div id="settingsStatus" style="margin-top:12px; font-size:13px;"></div>
@@ -2448,8 +2822,31 @@ const scrollToBottomBtn = document.getElementById('scrollToBottomBtn');
 let multiAgentMode = false;
 const multiAgentToggle = document.getElementById('multiAgentToggle');
 multiAgentToggle.addEventListener('click', () => {
+  if (toolCallingMode) return; // multi-agent has no tool-calling counterpart yet
   multiAgentMode = !multiAgentMode;
   multiAgentToggle.classList.toggle('active', multiAgentMode);
+});
+
+let toolCallingMode = false;
+const toolCallingToggle = document.getElementById('toolCallingToggle');
+function applyToolCallingUiEffects() {
+  // Multi-agent mode is text-protocol-only for now (see run_multi_agent_stream) --
+  // the server already ignores multi_agent when tool_calling is on, this just
+  // keeps the toggle from looking like it's doing anything while that's true.
+  if (toolCallingMode) {
+    multiAgentMode = false;
+    multiAgentToggle.classList.remove('active');
+    multiAgentToggle.style.opacity = '0.4';
+    multiAgentToggle.style.pointerEvents = 'none';
+  } else {
+    multiAgentToggle.style.opacity = '';
+    multiAgentToggle.style.pointerEvents = '';
+  }
+}
+toolCallingToggle.addEventListener('click', () => {
+  toolCallingMode = !toolCallingMode;
+  toolCallingToggle.classList.toggle('active', toolCallingMode);
+  applyToolCallingUiEffects();
 });
 
 async function checkOllamaConnectivity() {
@@ -2591,6 +2988,10 @@ async function loadSettingsWorkspace() {
     slider.value = data.context_size || 2048;
     document.getElementById('ctxSizeLabel').textContent = slider.value;
     updateCtxSliderFill(slider);
+
+    toolCallingMode = !!data.tool_calling;
+    document.getElementById('toolCallingToggle').classList.toggle('active', toolCallingMode);
+    applyToolCallingUiEffects();
   } catch (e) {
     statusEl.style.color = "var(--red)";
     statusEl.textContent = "Failed to load settings.";
@@ -2648,7 +3049,7 @@ document.getElementById('saveSettingsBtn').addEventListener('click', async () =>
     const res = await fetch('/api/settings/save', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({model, context_size})
+      body: JSON.stringify({model, context_size, tool_calling: toolCallingMode})
     });
     if (res.ok) {
       statusEl.style.color = "var(--green)";
@@ -2748,6 +3149,7 @@ document.getElementById('newChatBtn').addEventListener('click', async () => {
 const QUEUE_ICONS = {pending: '☐', active: '◐', done: '✓', failed: '✕'};
 let currentQueueRowEl = null;
 let currentAbortController = null;
+let currentTurnId = null;
 let isStreaming = false;
 
 function renderQueueInto(rowEl, queue){
@@ -2919,6 +3321,10 @@ async function dispatchMessage(){
         try {
           const step = JSON.parse(line);
 
+          if(step.type === 'turn_id') {
+            currentTurnId = step.turn_id;
+            continue;
+          }
           if(step.type === 'thinking_start') {
             ensureThoughtEl();
             continue;
@@ -3004,6 +3410,11 @@ async function dispatchMessage(){
             typeChar();
             continue;
           }
+          if(step.type === 'cancelled') {
+            clearThoughtEl();
+            addStepNodeToStage({type: 'warning', text: step.text || 'Stopped by user.', time: step.time});
+            continue;
+          }
           if(step.type === 'skill_learned') {
             const skillsPanel = document.getElementById('skillsPanel');
             if (skillsPanel && skillsPanel.classList.contains('active')) {
@@ -3029,6 +3440,7 @@ async function dispatchMessage(){
     // Reset streaming state and button
     isStreaming = false;
     currentAbortController = null;
+    currentTurnId = null;
     sendBtn.textContent = '➤';
     sendBtn.classList.remove('stop-mode');
     sendBtn.disabled = false;
@@ -3038,7 +3450,15 @@ async function dispatchMessage(){
 
 sendBtn.addEventListener('click', () => {
   if (isStreaming && currentAbortController) {
-    // Stop the current stream
+    // Abort stops the browser from reading further; the cancel request is what
+    // actually tells the server to stop the agent loop instead of letting it
+    // keep calling Ollama / running commands in the background.
+    if (currentTurnId) {
+      fetch('/api/chat/cancel', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({turn_id: currentTurnId})
+      }).catch(() => {});
+    }
     currentAbortController.abort();
   } else {
     // Send new message
@@ -3103,8 +3523,16 @@ async function loadSkillsWorkspace() {
   data.skills.forEach((s, idx) => {
     const text = typeof s === 'string' ? s : (s.text || '');
     const source = typeof s === 'string' ? 'manual' : (s.source || 'manual');
+    const uses = typeof s === 'object' ? (s.uses || 0) : 0;
+    const helpful = typeof s === 'object' ? (s.helpful || 0) : 0;
+    const unhelpful = typeof s === 'object' ? (s.unhelpful || 0) : 0;
+
     const item = document.createElement('div');
     item.className = "memory-item";
+    item.style.cssText = 'flex-direction:column; align-items:stretch; gap:0;';
+
+    const topRow = document.createElement('div');
+    topRow.style.cssText = 'display:flex; align-items:flex-start; justify-content:space-between; gap:8px; width:100%;';
     const badgeIcon = source === 'auto' ? '\uf0eb' : (source === 'system' ? '\uf05a' : '\uf040');
     const badgeLabel = source === 'auto' ? 'learned' : (source === 'system' ? 'tip' : 'manual');
     const outerSpan = document.createElement('span');
@@ -3116,9 +3544,41 @@ async function loadSkillsWorkspace() {
     const delBtn = document.createElement('button');
     delBtn.className = 'delete-btn';
     delBtn.setAttribute('data-idx', idx);
-    delBtn.textContent = '✕ Delete';
-    item.appendChild(outerSpan);
-    item.appendChild(delBtn);
+    delBtn.textContent = '✕';
+    delBtn.title = 'Delete this skill';
+    topRow.appendChild(outerSpan);
+    topRow.appendChild(delBtn);
+
+    // Usage + feedback row: surfaces whether a note is actually being picked up
+    // by _select_relevant_skill_entries, and lets you vote a bad note down --
+    // three "unhelpful" votes past its "helpful" votes and it's auto-pruned.
+    const metaRow = document.createElement('div');
+    metaRow.style.cssText = 'display:flex; align-items:center; gap:12px; margin-top:6px; opacity:0.65; font-size:11px;';
+    const usesSpan = document.createElement('span');
+    usesSpan.textContent = uses > 0 ? `used ${uses}x` : 'not used yet';
+    metaRow.appendChild(usesSpan);
+
+    if (source !== 'system') {
+      const makeVoteBtn = (glyph, count, helpfulVote, titleText) => {
+        const btn = document.createElement('button');
+        btn.style.cssText = 'background:none; border:none; cursor:pointer; opacity:0.85; font-size:11px; color:inherit; padding:2px 4px;';
+        btn.textContent = `${glyph} ${count}`;
+        btn.title = titleText;
+        btn.addEventListener('click', async () => {
+          const fbRes = await fetch('/api/skills/feedback', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({index: idx, helpful: helpfulVote})
+          });
+          if (fbRes.ok) loadSkillsWorkspace();
+        });
+        return btn;
+      };
+      metaRow.appendChild(makeVoteBtn('\uf164', helpful, true, 'Mark this note as helpful'));
+      metaRow.appendChild(makeVoteBtn('\uf165', unhelpful, false, 'Mark this note as unhelpful (repeated unhelpful votes auto-remove it)'));
+    }
+
+    item.appendChild(topRow);
+    item.appendChild(metaRow);
     item.querySelector('.delete-btn').addEventListener('click', async (e) => {
       const targetIdx = e.currentTarget.getAttribute('data-idx');
       const delRes = await fetch('/api/skills/delete', {
