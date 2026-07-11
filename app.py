@@ -3561,7 +3561,7 @@ async function loadSkillsWorkspace() {
     if (source !== 'system') {
       const makeVoteBtn = (glyph, count, helpfulVote, titleText) => {
         const btn = document.createElement('button');
-        btn.style.cssText = 'background:none; border:none; cursor:pointer; opacity:0.85; font-size:11px; color:inherit; padding:2px 4px;';
+        btn.style.cssText = 'background:none; border:none; cursor:pointer; opacity:0.85; font-size:11px; color:inherit; padding:2px 4px; font-family:var(--mono);';
         btn.textContent = `${glyph} ${count}`;
         btn.title = titleText;
         btn.addEventListener('click', async () => {
