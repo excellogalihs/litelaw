@@ -281,7 +281,7 @@ def get_system_prompt(memories=None, skills=None, query=None, used_skill_ids_out
             skill_context = "\n\nLEARNED SKILLS (notes litelaw wrote itself after past tasks -- apply them when relevant, ignore any that don't fit this task):\n" + \
                              "\n".join(f"- {s}" for s in skill_lines)
 
-    return f"""You are "litelaw", a computer automation agent. You run terminal commands to help users.{memory_context}{skill_context}
+    return f"""You are "litelaw", a computer automation agent running on the user's own machine ({current_os}). You run terminal commands to help users.{memory_context}{skill_context}
 
 You have TWO actions:
 1. RUN_COMMAND - run a terminal command
@@ -468,131 +468,6 @@ def call_ollama_stream(messages, model=None, context_size=None):
     except Exception as e:
         print(f"\n🛑 [Error] Ollama response error: {e}")
         return
-
-# --- Native tool-calling (opt-in alternative to the ACTION:/COMMAND:/ANSWER: text
-# protocol above). Models that actually support Ollama's function-calling API
-# (qwen3, llama3.1+, mistral-nemo, etc -- notably NOT gemma3) can be given real
-# tool definitions instead of being asked to follow a strict text format, which
-# removes a whole layer of regex parsing and typo-correction that only exists
-# because small models drift from a text-based protocol. Ollama's tool-calling
-# only returns complete tool_calls on non-streaming responses, so this path
-# does one blocking call per step rather than streaming tokens.
-TOOL_SPECS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "run_command",
-            "description": "Run a single shell command on the user's machine and see its output. "
-                            "Use this to inspect the system, create/edit files, or take any action the task needs.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "command": {
-                        "type": "string",
-                        "description": "The exact shell command to execute, e.g. \"ls -la\" or \"echo 'hello' > file.txt\"."
-                    }
-                },
-                "required": ["command"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "finish",
-            "description": "Call this once the task is complete and no more commands are needed, to give the "
-                            "user your final answer/summary.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "answer": {
-                        "type": "string",
-                        "description": "The final natural-language answer or summary for the user."
-                    }
-                },
-                "required": ["answer"]
-            }
-        }
-    }
-]
-
-def get_tools_system_prompt(memories=None, skills=None, query=None, used_skill_ids_out=None):
-    """System prompt for the native tool-calling agent loop. Much shorter than
-    get_system_prompt's, because the tool schemas above -- not prose -- define
-    the response format, so there's no ACTION:/COMMAND:/ANSWER: protocol (or
-    the typo-correction machinery that exists to compensate for small models
-    drifting from it) to explain.
-    """
-    memory_context = ""
-    if memories:
-        memory_context = "\n\nPERSISTENT CONTEXT & MEMORIES FROM PAST SESSIONS:\n" + "\n".join(f"- {m}" for m in memories)
-
-    skill_context = ""
-    if skills:
-        entries = []
-        for s in skills:
-            if isinstance(s, dict):
-                text = s.get("text", "")
-                sid = s.get("id") or text
-            else:
-                text = s
-                sid = s
-            if text:
-                entries.append((sid, text))
-        selected = _select_relevant_skill_entries(entries, query=query, limit=6)
-        if used_skill_ids_out is not None:
-            used_skill_ids_out.extend(sid for sid, _ in selected)
-        skill_lines = [text for _, text in selected]
-        if skill_lines:
-            skill_context = "\n\nLEARNED SKILLS (notes litelaw wrote itself after past tasks -- apply them when relevant, ignore any that don't fit this task):\n" + \
-                             "\n".join(f"- {s}" for s in skill_lines)
-
-    return (f"You are \"litelaw\", a computer automation agent running on the user's own machine "
-            f"({platform.system()}).{memory_context}{skill_context}\n\n"
-            "You have two tools: run_command to execute a shell command and see its output, and "
-            "finish to give your final answer once the task is done. Call run_command as many times "
-            "as needed, one command at a time, then call finish with a clear, concise summary of what "
-            "you did and any relevant results. Don't call finish and run_command in the same turn. "
-            "If the task is just a greeting or doesn't need any commands, call finish immediately.")
-
-def call_ollama_tools(messages, model=None, context_size=None, tools=None):
-    """Non-streaming call to Ollama's /api/chat with function-calling tools.
-    Returns the raw message dict (which may include a 'tool_calls' list), or
-    None on failure.
-    """
-    resolved_model = model or MODEL
-    if not resolved_model:
-        print(f"\n\uf071  [Error] No model configured. Set the LITEMODEL environment variable, "
-              f"or choose an installed model in Settings if you're using the web app.")
-        return None
-    payload = {
-        "model": resolved_model,
-        "messages": messages,
-        "stream": False,
-        "keep_alive": OLLAMA_KEEP_ALIVE,
-        "tools": tools if tools is not None else TOOL_SPECS,
-        "options": _build_options(context_size)
-    }
-    req = urllib.request.Request(
-        OLLAMA_URL,
-        data=json.dumps(payload).encode('utf-8'),
-        headers={'Content-Type': 'application/json'}
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=120) as response:
-            res_body = response.read().decode('utf-8')
-            res_json = json.loads(res_body)
-            return res_json.get('message')
-    except urllib.error.HTTPError as e:
-        error_body = e.read().decode('utf-8') if e.fp else ""
-        print(f"\n🛑 [Error] Ollama HTTP {e.code}: {error_body}")
-        return None
-    except urllib.error.URLError as e:
-        print(f"\n🛑 [Error] Could not connect to Ollama. Ensure it's running. ({e.reason})")
-        return None
-    except Exception as e:
-        print(f"\n🛑 [Error] Ollama response error: {e}")
-        return None
 
 # Destructive command patterns that are ALWAYS blocked, regardless of AUTO_APPROVE.
 # gemma3:1b can hallucinate dangerous commands confidently, so this guardrail is

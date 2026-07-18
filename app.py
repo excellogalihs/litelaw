@@ -6,19 +6,17 @@ import uuid
 import io
 import threading
 from datetime import datetime
-from flask import Flask, request, jsonify, render_template_string, session, send_file, Response, stream_with_context
+from flask import Flask, request, jsonify, render_template_string, send_file, Response, stream_with_context
 
 # Third-party conversion requirements
-from pypdf import PdfReader, PdfWriter
+from pypdf import PdfReader
 from docx import Document
 from PIL import Image
 
 from litelaw import (
     get_system_prompt,
-    get_tools_system_prompt,
     call_ollama,
     call_ollama_stream,
-    call_ollama_tools,
     execute_command,
     parse_response,
     list_models,
@@ -99,7 +97,7 @@ def _default_store():
                 "uses": 0, "helpful": 0, "unhelpful": 0,
             }
         ],
-        "settings": {"model": NO_MODEL, "context_size": DEFAULT_CONTEXT_SIZE, "tool_calling": False}
+        "settings": {"model": NO_MODEL, "context_size": DEFAULT_CONTEXT_SIZE}
     }
 
 def load_store():
@@ -117,7 +115,7 @@ def load_store():
                 data.setdefault("settings", {})
                 data["settings"].setdefault("model", NO_MODEL)
                 data["settings"].setdefault("context_size", DEFAULT_CONTEXT_SIZE)
-                data["settings"].setdefault("tool_calling", False)
+                data["settings"].pop("tool_calling", None)
                 # Migrate any skill entries saved before usage-tracking/feedback
                 # existed (or plain-string legacy entries) so every skill has a
                 # stable id and the counters the feedback loop relies on.
@@ -139,7 +137,7 @@ def load_store():
                 return data
         except Exception:
             return {"chats": {}, "memories": [], "documents": {}, "reminders": {}, "skills": [],
-                    "settings": {"model": NO_MODEL, "context_size": DEFAULT_CONTEXT_SIZE, "tool_calling": False}}
+                    "settings": {"model": NO_MODEL, "context_size": DEFAULT_CONTEXT_SIZE}}
 
 def save_store(data):
     """Persist store dictionary cleanly back to disk."""
@@ -423,6 +421,7 @@ def web_run_agent_stream(user_goal, session_messages, memories, model=None, cont
     for step in range(10):
         if cancel_event is not None and cancel_event.is_set():
             yield {"type": "cancelled", "text": "Stopped by user.", "time": now}
+            trim_context(session_messages)
             return
 
         yield {"type": "thinking_start", "time": now}
@@ -439,6 +438,7 @@ def web_run_agent_stream(user_goal, session_messages, memories, model=None, cont
         if cancelled_mid_stream:
             yield {"type": "thinking_end"}
             yield {"type": "cancelled", "text": "Stopped by user.", "time": now}
+            trim_context(session_messages)
             return
 
         response = "".join(response_parts)
@@ -475,6 +475,7 @@ def web_run_agent_stream(user_goal, session_messages, memories, model=None, cont
                 yield {"type": "command", "text": target, "time": now}
                 if cancel_event is not None and cancel_event.is_set():
                     yield {"type": "cancelled", "text": "Stopped by user before running the command.", "time": now}
+                    trim_context(session_messages)
                     return
                 cmd_output = execute_command(target)
                 yield {"type": "output", "text": cmd_output.strip(), "time": now}
@@ -521,6 +522,7 @@ def web_run_agent_stream(user_goal, session_messages, memories, model=None, cont
             yield {"type": "command", "text": target, "time": now}
             if cancel_event is not None and cancel_event.is_set():
                 yield {"type": "cancelled", "text": "Stopped by user before running the command.", "time": now}
+                trim_context(session_messages)
                 return
             cmd_output = execute_command(target)
             yield {"type": "output", "text": cmd_output.strip(), "time": now}
@@ -562,138 +564,6 @@ def web_run_agent_stream(user_goal, session_messages, memories, model=None, cont
                 break
             yield {"type": "warning", "text": "Formatting misalignment detected; adjusting agent constraints.", "time": now}
             session_messages.append({"role": "user", "content": "Invalid layout. Return your move strictly using ACTION: RUN_COMMAND or ACTION: FINISHED.", "time": now})
-    else:
-        yield {"type": "error", "text": "Reached step threshold limit before closure.", "time": now}
-
-    trim_context(session_messages)
-
-
-def web_run_agent_tools_stream(user_goal, session_messages, memories, model=None, context_size=None, cancel_event=None):
-    """Native tool-calling counterpart to web_run_agent_stream, for models that
-    actually support Ollama's function-calling API (see TOOL_SPECS and
-    get_tools_system_prompt in litelaw.py -- notably qwen3, not gemma3). Skips
-    the ACTION:/COMMAND:/ANSWER: text protocol, and the typo-correction/regex
-    parsing that exists only to compensate for small models drifting from it,
-    entirely -- the tool schema defines the response shape instead of prose
-    asking the model to follow one.
-
-    Ollama only returns complete tool_calls on non-streaming responses, so
-    unlike web_run_agent_stream this can't stream individual tokens; it emits
-    a "thinking_start"/"thinking_end" pair around each blocking call instead,
-    so the UI still shows the same "thinking" indicator.
-    """
-    now = _now()
-
-    if _is_pure_greeting(user_goal):
-        session_messages.append({"role": "user", "content": f"Task: {user_goal}", "time": now})
-        reply = _greeting_reply(user_goal)
-        session_messages.append({"role": "assistant", "content": reply, "time": now})
-        yield {"type": "final", "text": reply, "time": now}
-        return
-
-    session_messages.append({"role": "user", "content": f"Task: {user_goal}", "time": now})
-
-    if not model:
-        yield {"type": "error", "text": "No model selected. Open Settings and choose an installed Ollama model before running a task.", "time": now}
-        return
-
-    command_history = []
-
-    for step in range(10):
-        if cancel_event is not None and cancel_event.is_set():
-            yield {"type": "cancelled", "text": "Stopped by user.", "time": now}
-            return
-
-        yield {"type": "thinking_start", "time": now}
-        message = call_ollama_tools(session_messages, model=model, context_size=context_size)
-        yield {"type": "thinking_end"}
-
-        if cancel_event is not None and cancel_event.is_set():
-            yield {"type": "cancelled", "text": "Stopped by user.", "time": now}
-            return
-
-        if message is None:
-            yield {"type": "error", "text": "Failed to reach Ollama. Make sure it's running (ollama serve)."}
-            break
-
-        content_text = message.get("content") or ""
-        tool_calls = message.get("tool_calls") or []
-
-        # Store exactly what came back so a future turn's context (and chat-history
-        # reconstruction) reflects what the model actually did, not a paraphrase.
-        session_messages.append({"role": "assistant", "content": content_text, "tool_calls": tool_calls, "time": now})
-
-        if not tool_calls:
-            # Model replied with plain text instead of calling a tool -- treat
-            # that as its final answer rather than erroring out, since some
-            # tool-capable models still do this for simple conversational replies.
-            final_text = content_text.strip() or "Done."
-            yield {"type": "final", "text": final_text, "time": now}
-            if command_history and model:
-                note = _generate_skill_note(user_goal, command_history, final_text, model=model, context_size=context_size)
-                if note:
-                    _save_skill(note, source="auto")
-                    yield {"type": "skill_learned", "text": note, "time": now}
-            break
-
-        if content_text.strip():
-            yield {"type": "thought", "text": content_text.strip(), "time": now}
-
-        finished = False
-        final_text = ""
-        for tc in tool_calls:
-            fn = tc.get("function", {}) or {}
-            fname = fn.get("name")
-            raw_args = fn.get("arguments")
-            if isinstance(raw_args, str):
-                try:
-                    args = json.loads(raw_args)
-                except (TypeError, ValueError):
-                    args = {}
-            else:
-                args = raw_args or {}
-
-            if fname == "run_command":
-                target = str(args.get("command", "")).strip()
-                if not target:
-                    session_messages.append({"role": "tool", "content": "Error: no command given.",
-                                              "name": fname, "tool_call_id": tc.get("id", ""), "time": now})
-                    continue
-
-                command_history.append(target)
-                repeats = sum(1 for c in command_history[-3:] if c == target)
-                if repeats >= 3:
-                    yield {"type": "warning", "text": f"Loop detected: command '{target}' repeated {repeats} times.", "time": now}
-                    session_messages.append({"role": "tool", "content": "That command already ran. Call finish now instead of repeating it.",
-                                              "name": fname, "tool_call_id": tc.get("id", ""), "time": now})
-                    continue
-
-                yield {"type": "command", "text": target, "time": now}
-                if cancel_event is not None and cancel_event.is_set():
-                    yield {"type": "cancelled", "text": "Stopped by user before running the command.", "time": now}
-                    return
-                cmd_output = execute_command(target)
-                yield {"type": "output", "text": cmd_output.strip(), "time": now}
-                session_messages.append({"role": "tool", "content": cmd_output,
-                                          "name": fname, "tool_call_id": tc.get("id", ""), "time": now})
-
-            elif fname == "finish":
-                final_text = _clean_answer(str(args.get("answer", "")).strip()) or "Done."
-                finished = True
-                session_messages.append({"role": "tool", "content": "ok",
-                                          "name": fname, "tool_call_id": tc.get("id", ""), "time": now})
-            else:
-                session_messages.append({"role": "tool", "content": f"Unknown tool '{fname}'.",
-                                          "name": fname or "unknown", "tool_call_id": tc.get("id", ""), "time": now})
-
-        if finished:
-            yield {"type": "final", "text": final_text, "time": now}
-            if command_history and model:
-                note = _generate_skill_note(user_goal, command_history, final_text, model=model, context_size=context_size)
-                if note:
-                    _save_skill(note, source="auto")
-                    yield {"type": "skill_learned", "text": note, "time": now}
-            break
     else:
         yield {"type": "error", "text": "Reached step threshold limit before closure.", "time": now}
 
@@ -989,7 +859,6 @@ def models_list():
         # isn't actually pulled in Ollama -- either way, not a valid active model.
         "current_model_installed": (bool(current_model) and current_model in models) if models else None,
         "context_size": settings.get("context_size", DEFAULT_CONTEXT_SIZE),
-        "tool_calling": bool(settings.get("tool_calling")),
     })
 
 @app.route("/api/settings/save", methods=["POST"])
@@ -1011,9 +880,6 @@ def settings_save():
         except (TypeError, ValueError):
             pass
 
-        if "tool_calling" in data:
-            settings["tool_calling"] = bool(data.get("tool_calling"))
-
         save_store(store)
         settings_copy = dict(settings)
     return jsonify({"ok": True, "settings": settings_copy})
@@ -1032,13 +898,11 @@ def create_new_chat():
     with STORE_LOCK:
         store = load_store()
         chat_id = uuid.uuid4().hex
-        tool_calling = bool(store.get("settings", {}).get("tool_calling"))
-        prompt_fn = get_tools_system_prompt if tool_calling else get_system_prompt
 
         # Pre-inject system prompt bundled with current persistent memories
         store["chats"][chat_id] = {
             "title": "Untitled Operations Thread",
-            "messages": [{"role": "system", "content": prompt_fn(store["memories"], store.get("skills"))}]
+            "messages": [{"role": "system", "content": get_system_prompt(store["memories"], store.get("skills"))}]
         }
         save_store(store)
         title = store["chats"][chat_id]["title"]
@@ -1064,27 +928,6 @@ def get_chat_history():
             if text.startswith("User instruction: "):
                 text = text.replace("User instruction: ", "", 1)
             visible_steps.append({"type": "user_msg", "text": text, "time": ts})
-        elif m["role"] == "assistant" and m.get("tool_calls"):
-            # Native tool-calling turn (see web_run_agent_tools_stream) --
-            # different shape from the ACTION:/COMMAND:/ANSWER: text protocol below.
-            if content.strip():
-                visible_steps.append({"type": "thought", "text": content.strip(), "time": ts})
-            for tc in m["tool_calls"]:
-                fn = tc.get("function", {}) or {}
-                fname = fn.get("name")
-                args = fn.get("arguments")
-                if isinstance(args, str):
-                    try:
-                        args = json.loads(args)
-                    except (TypeError, ValueError):
-                        args = {}
-                args = args or {}
-                if fname == "run_command":
-                    visible_steps.append({"type": "command", "text": args.get("command", ""), "time": ts})
-                    if idx + 1 < len(raw_msgs) and raw_msgs[idx + 1]["role"] == "tool":
-                        visible_steps.append({"type": "output", "text": raw_msgs[idx + 1].get("content", ""), "time": ts})
-                elif fname == "finish":
-                    visible_steps.append({"type": "final", "text": args.get("answer", ""), "time": ts})
         elif m["role"] == "assistant":
             resp = content
             thought_lines = [line.replace("THOUGHT:", "").strip() for line in resp.split('\n') if line.startswith("THOUGHT:")]
@@ -1109,8 +952,7 @@ def get_chat_history():
                 visible_steps.append({"type": "final", "text": final_text, "time": ts})
             elif resp.strip():
                 # Plain assistant reply with no ACTION protocol at all -- e.g. the
-                # tool-calling loop's greeting shortcut, or a tool-capable model
-                # that answered in plain text without calling a tool.
+                # greeting shortcut's stored reply.
                 visible_steps.append({"type": "final", "text": resp.strip(), "time": ts})
                 
     return jsonify({"steps": visible_steps})
@@ -1126,26 +968,23 @@ def chat():
 
     store = load_store()
     settings = store.get("settings", {})
-    tool_calling = bool(settings.get("tool_calling"))
-    prompt_fn = get_tools_system_prompt if tool_calling else get_system_prompt
 
     # If client lacks an active session ID or thread got deleted, spin a new one up
     if not chat_id or chat_id not in store["chats"]:
         chat_id = uuid.uuid4().hex
         store["chats"][chat_id] = {
             "title": message[:32] + "..." if len(message) > 32 else message,
-            "messages": [{"role": "system", "content": prompt_fn(store["memories"], store.get("skills"), query=message)}]
+            "messages": [{"role": "system", "content": get_system_prompt(store["memories"], store.get("skills"), query=message)}]
         }
     elif store["chats"][chat_id]["title"] == "Untitled Operations Thread":
         store["chats"][chat_id]["title"] = message[:32] + "..." if len(message) > 32 else message
 
     session_messages = store["chats"][chat_id]["messages"]
     used_skill_ids = []
-    session_messages[0] = {"role": "system", "content": prompt_fn(store["memories"], store.get("skills"), query=message, used_skill_ids_out=used_skill_ids)}
+    session_messages[0] = {"role": "system", "content": get_system_prompt(store["memories"], store.get("skills"), query=message, used_skill_ids_out=used_skill_ids)}
     _track_skill_usage(used_skill_ids)
     title = store["chats"][chat_id]["title"]
-    runner = web_run_agent_tools_stream if tool_calling else web_run_agent_stream
-    steps = list(runner(message, session_messages, store["memories"],
+    steps = list(web_run_agent_stream(message, session_messages, store["memories"],
                          model=settings.get("model"), context_size=settings.get("context_size")))
 
     persist_chat(chat_id, session_messages, title=title)
@@ -1166,28 +1005,23 @@ def chat_stream():
 
     store = load_store()
     settings = store.get("settings", {})
-    tool_calling = bool(settings.get("tool_calling"))
-    prompt_fn = get_tools_system_prompt if tool_calling else get_system_prompt
 
     if not chat_id or chat_id not in store["chats"]:
         chat_id = uuid.uuid4().hex
         store["chats"][chat_id] = {
             "title": message[:32] + "..." if len(message) > 32 else message,
-            "messages": [{"role": "system", "content": prompt_fn(store["memories"], store.get("skills"), query=message)}]
+            "messages": [{"role": "system", "content": get_system_prompt(store["memories"], store.get("skills"), query=message)}]
         }
     elif store["chats"][chat_id]["title"] == "Untitled Operations Thread":
         store["chats"][chat_id]["title"] = message[:32] + "..." if len(message) > 32 else message
 
     session_messages = store["chats"][chat_id]["messages"]
     used_skill_ids = []
-    session_messages[0] = {"role": "system", "content": prompt_fn(store["memories"], store.get("skills"), query=message, used_skill_ids_out=used_skill_ids)}
+    session_messages[0] = {"role": "system", "content": get_system_prompt(store["memories"], store.get("skills"), query=message, used_skill_ids_out=used_skill_ids)}
     _track_skill_usage(used_skill_ids)
 
     title = store["chats"][chat_id]["title"]
-    # Multi-agent (planner/executor/reviewer) mode is text-protocol-only for now --
-    # it doesn't have a tool-calling counterpart yet, so tool_calling wins if both
-    # happen to be on rather than silently mixing the two.
-    multi_agent = bool(data.get("multi_agent")) and not tool_calling
+    multi_agent = bool(data.get("multi_agent"))
 
     turn_id = uuid.uuid4().hex
     cancel_event = _register_cancel_event(turn_id)
@@ -1206,10 +1040,7 @@ def chat_stream():
         cancelled = False
         try:
             yield json.dumps({"type": "turn_id", "turn_id": turn_id}) + "\n"
-            if tool_calling:
-                runner = web_run_agent_tools_stream
-            else:
-                runner = run_multi_agent_stream if multi_agent else web_run_agent_stream
+            runner = run_multi_agent_stream if multi_agent else web_run_agent_stream
             for step in runner(message, session_messages, store["memories"],
                                 model=settings.get("model"), context_size=settings.get("context_size"),
                                 cancel_event=cancel_event):
@@ -2767,14 +2598,6 @@ textarea#msg{ flex:1; resize:none; background:transparent; border:none; outline:
             </div>
           </div>
 
-          <div style="margin-bottom:20px;">
-            <label style="display:block; font-size:12.5px; color:var(--text-dim); margin-bottom:6px; text-transform:uppercase; letter-spacing:0.04em;">Agent Protocol</label>
-            <div class="agent-mode-toggle" id="toolCallingToggle" style="display:inline-flex;" title="Uses the model's native function-calling API instead of the ACTION:/COMMAND:/ANSWER: text format. Only works with tool-capable models like qwen3 -- gemma3 does not support it and will likely just talk instead of acting.">
-              <span class="dot"></span><span>Native tool calling</span>
-            </div>
-            <div style="font-size:12px; color:var(--text-dim); margin-top:6px;">Requires a tool-capable model (e.g. qwen3). Turns off multi-agent mode while enabled.</div>
-          </div>
-
           <button class="sidebar-btn" id="saveSettingsBtn" style="width:auto; margin:0;">&#xf0c7; Save Settings</button>
           <button class="sidebar-btn" id="refreshModelsBtn" style="width:auto; align-self:center; margin:12px auto 0 auto; background:rgba(255,255,255,0.04);">&#xf021; Refresh Model List</button>
           <div id="settingsStatus" style="margin-top:12px; font-size:13px;"></div>
@@ -2822,31 +2645,8 @@ const scrollToBottomBtn = document.getElementById('scrollToBottomBtn');
 let multiAgentMode = false;
 const multiAgentToggle = document.getElementById('multiAgentToggle');
 multiAgentToggle.addEventListener('click', () => {
-  if (toolCallingMode) return; // multi-agent has no tool-calling counterpart yet
   multiAgentMode = !multiAgentMode;
   multiAgentToggle.classList.toggle('active', multiAgentMode);
-});
-
-let toolCallingMode = false;
-const toolCallingToggle = document.getElementById('toolCallingToggle');
-function applyToolCallingUiEffects() {
-  // Multi-agent mode is text-protocol-only for now (see run_multi_agent_stream) --
-  // the server already ignores multi_agent when tool_calling is on, this just
-  // keeps the toggle from looking like it's doing anything while that's true.
-  if (toolCallingMode) {
-    multiAgentMode = false;
-    multiAgentToggle.classList.remove('active');
-    multiAgentToggle.style.opacity = '0.4';
-    multiAgentToggle.style.pointerEvents = 'none';
-  } else {
-    multiAgentToggle.style.opacity = '';
-    multiAgentToggle.style.pointerEvents = '';
-  }
-}
-toolCallingToggle.addEventListener('click', () => {
-  toolCallingMode = !toolCallingMode;
-  toolCallingToggle.classList.toggle('active', toolCallingMode);
-  applyToolCallingUiEffects();
 });
 
 async function checkOllamaConnectivity() {
@@ -2988,10 +2788,6 @@ async function loadSettingsWorkspace() {
     slider.value = data.context_size || 2048;
     document.getElementById('ctxSizeLabel').textContent = slider.value;
     updateCtxSliderFill(slider);
-
-    toolCallingMode = !!data.tool_calling;
-    document.getElementById('toolCallingToggle').classList.toggle('active', toolCallingMode);
-    applyToolCallingUiEffects();
   } catch (e) {
     statusEl.style.color = "var(--red)";
     statusEl.textContent = "Failed to load settings.";
@@ -3049,7 +2845,7 @@ document.getElementById('saveSettingsBtn').addEventListener('click', async () =>
     const res = await fetch('/api/settings/save', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({model, context_size, tool_calling: toolCallingMode})
+      body: JSON.stringify({model, context_size})
     });
     if (res.ok) {
       statusEl.style.color = "var(--green)";
